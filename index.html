@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#2563eb" />
   <meta name="robots" content="noindex, nofollow" />
   <meta name="referrer" content="no-referrer" />
-  <title>Boodschappenlijst</title>
+  <title>Onze lijst</title>
   <link rel="manifest" href="./manifest.json" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,21 +15,30 @@
 </head>
 <body>
   <header class="topbar">
-    <h1><span class="emoji">🛒</span> Boodschappenlijst</h1>
-    <button id="share-btn" class="btn btn-ghost btn-small">Deel met gezin</button>
+    <h1>
+      <span class="emoji">📋</span>
+      <button id="rename-btn" class="list-name-btn" type="button" title="Tik om de naam aan te passen">
+        <span id="list-name">Onze lijst</span>
+      </button>
+    </h1>
+    <div class="topbar-actions">
+      <button id="color-btn" class="btn-icon" type="button" title="Kies je eigen kleur">🎨</button>
+      <input id="color-picker" type="color" class="visually-hidden" value="#3b63e0" />
+      <button id="share-btn" class="btn btn-ghost btn-small">Deel met gezin</button>
+    </div>
   </header>
 
   <main id="app" hidden>
     <form id="add-form" class="add-row">
-      <input id="new-item" type="text" placeholder="Nieuw boodschapje..." autocomplete="off" />
+      <input id="new-item" type="text" placeholder="Nieuw item..." autocomplete="off" />
       <button type="submit" class="btn btn-primary">Toevoegen</button>
     </form>
 
     <ul id="list" class="list"></ul>
 
     <div id="empty-hint" class="empty-state" hidden>
-      <span class="icon">🧺</span>
-      Nog niks op je lijst.<br />Voeg hierboven je eerste boodschap toe.
+      <span class="icon">📝</span>
+      Nog niks op je lijst.<br />Voeg hierboven je eerste item toe.
     </div>
   </main>
 
@@ -41,6 +50,9 @@
   <footer class="statusbar">
     <span id="status-dot" class="status-dot"></span>
     <span id="sync-status">Verbinden...</span>
+    <button id="list-code-btn" class="list-code-btn" type="button" title="Tik om de lijst-code te controleren of aan te passen">
+      Code: <code id="list-code-value">........</code>
+    </button>
   </footer>
 
   <script src="./config.js"></script>
