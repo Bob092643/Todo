@@ -45,12 +45,36 @@ function start() {
   const db = getFirestore(firebaseApp);
 
   // --- Welke gedeelde lijst? Bepaald door ?lijst=code in de link ---
+  // Wordt de app geopend zónder code (bijvoorbeeld via het icoontje na
+  // "Installeren" — dat gebruikt altijd het vaste startadres, niet de link
+  // waar je vandaan installeerde), dan pakken we de laatst gebruikte code
+  // van dít toestel erbij, in plaats van steeds een nieuwe lijst te
+  // verzinnen.
+  const STORAGE_KEY = "boodschappenlijst:laatste-lijst-id";
   const params = new URLSearchParams(location.search);
   let listId = params.get("lijst");
-  if (!listId) {
-    listId = crypto.randomUUID(); // lange, cryptografisch willekeurige code
+
+  if (listId) {
+    try {
+      localStorage.setItem(STORAGE_KEY, listId);
+    } catch (e) {
+      /* localStorage niet beschikbaar (bv. privénavigatie) — geen probleem */
+    }
+  } else {
+    let rememberedId = null;
+    try {
+      rememberedId = localStorage.getItem(STORAGE_KEY);
+    } catch (e) {
+      /* localStorage niet beschikbaar — val terug op een nieuwe lijst */
+    }
+    listId = rememberedId || crypto.randomUUID(); // lange, willekeurige code
     params.set("lijst", listId);
     history.replaceState(null, "", `${location.pathname}?${params.toString()}`);
+    try {
+      localStorage.setItem(STORAGE_KEY, listId);
+    } catch (e) {
+      /* zie boven */
+    }
   }
 
   const listRef = doc(db, "lists", listId);
