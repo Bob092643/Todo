@@ -181,8 +181,26 @@ function start() {
   el.listCodeBtn.addEventListener("click", () => {
     const next = prompt("Lijst-code (controleer of dit klopt, of plak hier een andere):", listId);
     if (next === null) return; // geannuleerd, niets aanpassen
-    const trimmed = next.trim();
+
+    // Mensen plakken hier weleens de hele link in plaats van alleen het
+    // codestukje erachter — haal 'm er dan automatisch uit.
+    let trimmed = next.trim();
+    try {
+      const maybeUrl = new URL(trimmed);
+      const fromUrl = maybeUrl.searchParams.get("lijst");
+      if (fromUrl) trimmed = fromUrl.trim();
+    } catch (e) {
+      /* was geen volledige link, gewoon de geplakte tekst zelf gebruiken */
+    }
+
     if (!trimmed || trimmed === listId) return; // niets veranderd
+
+    // Een "/" zou de verwijzing naar de verkeerde plek in de database sturen
+    // — dat laten we niet toe, met een duidelijke uitleg waarom.
+    if (trimmed.includes("/")) {
+      alert("Deze code mag geen \"/\" bevatten. Controleer of je de juiste code hebt geplakt.");
+      return;
+    }
 
     try {
       localStorage.setItem(STORAGE_KEY, trimmed);
