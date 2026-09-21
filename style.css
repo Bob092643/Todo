@@ -71,6 +71,8 @@ h1, .brand {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .topbar h1 .emoji {
@@ -89,6 +91,15 @@ h1, .brand {
   border-radius: 8px;
   cursor: pointer;
   border-bottom: 1px dashed rgba(255, 255, 255, 0.5);
+  /* Een lange lijstnaam mag de kop nooit naar 2 regels duwen — dan liever
+     een net afgekapt naampje met "...". Tikken op de naam toont 'm altijd
+     volledig (in het prompt-venstertje om 'm te wijzigen). */
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .list-name-btn:hover,
@@ -100,6 +111,7 @@ h1, .brand {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .btn-icon {
@@ -120,29 +132,6 @@ h1, .brand {
 .btn-icon:hover,
 .btn-icon:active {
   background: rgba(255, 255, 255, 0.22);
-}
-
-/* Op een touchscreen verschijnt de "title"-tooltip nooit (die heeft een
-   muis-hover nodig) — deze variant toont daarom altijd een klein label
-   onder het icoontje, zodat je niet hoeft te gokken wat een knop doet. */
-.btn-icon-labeled {
-  width: auto;
-  height: auto;
-  flex-direction: column;
-  gap: 1px;
-  padding: 5px 10px;
-}
-
-.btn-icon-glyph {
-  font-size: 1rem;
-  line-height: 1;
-}
-
-.btn-icon-label {
-  font-size: 0.6rem;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
 }
 
 .visually-hidden {
