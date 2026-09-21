@@ -22,11 +22,79 @@
       </button>
     </h1>
     <div class="topbar-actions">
-      <button id="color-btn" class="btn-icon" type="button" title="Kies je eigen kleur">🎨</button>
-      <input id="color-picker" type="color" class="visually-hidden" value="#3b63e0" />
-      <button id="share-btn" class="btn btn-ghost btn-small">Deel met gezin</button>
+      <button id="settings-btn" class="btn-icon btn-icon-labeled" type="button" title="Instellingen">
+        <span class="btn-icon-glyph">⚙️</span>
+        <span class="btn-icon-label">Instellingen</span>
+      </button>
+      <button id="archive-btn" class="btn-icon btn-icon-labeled" type="button" title="Archief (verwijderde items)">
+        <span class="btn-icon-glyph">🗄️<span id="archive-count" class="archive-count" hidden></span></span>
+        <span class="btn-icon-label">Archief</span>
+      </button>
+      <button id="share-btn" class="btn btn-ghost btn-small">Delen</button>
     </div>
   </header>
+
+  <nav id="list-tabs" class="list-tabs" hidden></nav>
+
+  <div id="archive-panel" class="archive-panel" hidden>
+    <div class="archive-panel-header">
+      <h2>Archief</h2>
+      <button id="archive-close-btn" class="btn-icon" type="button" title="Sluiten">✕</button>
+    </div>
+    <p class="archive-panel-hint">Verwijderde items blijven hier 30 dagen staan, daarna gaan ze vanzelf definitief weg.</p>
+    <ul id="archive-list" class="list"></ul>
+    <p id="archive-empty-hint" class="hint" hidden>Niks in het archief.</p>
+
+    <details class="danger-zone-toggle">
+      <summary class="danger-zone-summary"><span class="danger-zone-chevron">▸</span> Deze lijst verwijderen…</summary>
+      <div class="danger-zone">
+        <p class="danger-zone-title">Gevarenzone</p>
+        <p class="danger-zone-hint">Verwijdert deze hele lijst voor iedereen die de link/code heeft. Je hebt daarna nog 30 dagen om 'm terug te zetten.</p>
+        <button id="delete-list-btn" class="btn btn-danger btn-small" type="button">Verwijder deze lijst</button>
+      </div>
+    </details>
+  </div>
+
+  <div id="settings-panel" class="archive-panel" hidden>
+    <div class="archive-panel-header">
+      <h2>Instellingen</h2>
+      <button id="settings-close-btn" class="btn-icon" type="button" title="Sluiten">✕</button>
+    </div>
+
+    <div class="settings-section">
+      <p class="settings-section-title">🎨 Kleur</p>
+      <p class="settings-section-hint">Je eigen kleur voor de app — alleen zichtbaar op dit toestel.</p>
+      <div class="settings-section-actions">
+        <button id="color-btn" class="btn btn-ghost btn-small" type="button">Kies kleur</button>
+        <input id="color-picker" type="color" class="visually-hidden" value="#3b63e0" />
+        <button id="color-reset-btn" class="btn btn-ghost btn-small" type="button">Standaardkleur</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <p class="settings-section-title">👤 Naam</p>
+      <p class="settings-section-hint" id="settings-name-hint">Nog niet ingesteld — anderen zien dan niet wie iets heeft toegevoegd of afgevinkt.</p>
+      <div class="settings-section-actions">
+        <button id="name-btn" class="btn btn-ghost btn-small" type="button">Naam instellen</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <p class="settings-section-title">Hoe werkt dit?</p>
+      <div class="info-content">
+        <p>Dit is een gedeelde lijst: iedereen met de link of code ziet 'm en past 'm meteen aan, bij iedereen tegelijk.</p>
+        <ul>
+          <li><strong>✅ Afvinken</strong> — klaar? Vink het aan. Per ongeluk? Vink het weer uit, of gebruik het "Ongedaan maken"-knopje dat even in beeld komt.</li>
+          <li><strong>✕ Verwijderen</strong> — het item gaat 30 dagen naar het archief (🗄️-knop hierboven), waar je het nog kunt terugzetten.</li>
+          <li><strong>↑ ↓ Volgorde</strong> — verschuif een openstaand item zelf naar boven of beneden.</li>
+          <li><strong>📌 Vastpinnen</strong> — houdt een belangrijk item altijd bovenaan, ongeacht de volgorde.</li>
+          <li><strong>Tabbladen bovenin</strong> — voor meerdere losse lijstjes naast elkaar.</li>
+          <li><strong>Delen</strong> — stuurt de link waarmee anderen ook bij deze lijst kunnen.</li>
+          <li><strong>Code (onderin)</strong> — een kort stukje van de lijst-link. Handig om samen te controleren of twee toestellen echt naar dezelfde lijst kijken.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
 
   <main id="app" hidden>
     <form id="add-form" class="add-row">
@@ -42,6 +110,11 @@
     </div>
   </main>
 
+  <div id="deleted-hint" class="hint centered" hidden>
+    <p id="deleted-text"></p>
+    <button id="restore-list-btn" class="btn btn-primary" type="button" hidden>Zet lijst terug</button>
+  </div>
+
   <p id="config-hint" class="hint centered" hidden>
     ⚠️ Vul eerst je Firebase-instellingen in <code>config.js</code> in — zie
     README.md.
@@ -54,6 +127,11 @@
       Code: <code id="list-code-value">........</code>
     </button>
   </footer>
+
+  <div id="toast" class="toast" hidden>
+    <span id="toast-text"></span>
+    <button id="toast-undo-btn" class="btn btn-ghost btn-small" type="button">Ongedaan maken</button>
+  </div>
 
   <script src="./config.js"></script>
   <script type="module" src="./app.js"></script>

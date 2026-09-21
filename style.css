@@ -122,6 +122,29 @@ h1, .brand {
   background: rgba(255, 255, 255, 0.22);
 }
 
+/* Op een touchscreen verschijnt de "title"-tooltip nooit (die heeft een
+   muis-hover nodig) — deze variant toont daarom altijd een klein label
+   onder het icoontje, zodat je niet hoeft te gokken wat een knop doet. */
+.btn-icon-labeled {
+  width: auto;
+  height: auto;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 10px;
+}
+
+.btn-icon-glyph {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.btn-icon-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -132,6 +155,249 @@ h1, .brand {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+.list-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  overflow-x: auto;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.list-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.list-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.list-tab-label {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-tab.active {
+  background: var(--blue-600);
+  border-color: var(--blue-600);
+  color: white;
+}
+
+.list-tab-remove {
+  opacity: 0.65;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 2px;
+  border-radius: 999px;
+}
+
+.list-tab-remove:hover {
+  opacity: 1;
+}
+
+.list-tab-add {
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: 7px 14px;
+  color: var(--blue-600);
+  border-style: dashed;
+}
+
+.archive-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+#archive-btn {
+  position: relative;
+}
+
+.archive-panel {
+  max-width: 480px;
+  width: 100%;
+  margin: 16px auto 0;
+  padding: 0 16px;
+}
+
+.archive-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.archive-panel .btn-icon {
+  border-color: var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* .btn-ghost is ontworpen voor de donkerblauwe kop (witte tekst op een
+   doorzichtig vlak) — binnen een lichte paneelachtergrond (archief- en
+   instellingenpaneel) is dat vrijwel onzichtbaar. Hier krijgt het i.p.v.
+   daarvan een duidelijk zichtbaar, lichtblauw uiterlijk. */
+.archive-panel .btn-ghost {
+  background: var(--blue-50);
+  color: var(--blue-600);
+  border: 1px solid var(--border);
+  backdrop-filter: none;
+}
+
+.archive-panel .btn-ghost:hover {
+  background: var(--blue-50);
+  border-color: var(--blue-500);
+}
+
+.archive-panel-header h2 {
+  font-size: 1.05rem;
+  margin: 0;
+}
+
+.archive-panel-hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0 0 12px;
+}
+
+.archive-panel .list li {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.archive-meta {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.settings-section {
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+
+.settings-section:first-of-type {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.settings-section-title {
+  margin: 0 0 4px;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.settings-section-hint {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.settings-section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.danger-zone-toggle {
+  margin-top: 20px;
+}
+
+/* Zonder deze regel toont elke browser er zelf een driehoekje/pijltje bij
+   — dat ziet er als los onderdeel wat rommelig uit naast onze eigen tekst. */
+.danger-zone-toggle summary::-webkit-details-marker {
+  display: none;
+}
+
+.danger-zone-summary {
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 6px 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.danger-zone-summary:hover {
+  color: var(--danger);
+}
+
+/* Een tekstregel met alleen een "cursor: pointer" is op een touchscreen
+   (geen hover) niet te herkennen als tikbaar. Dit pijltje maakt dat in één
+   oogopslag duidelijk, en draait mee zodra de gevarenzone openstaat. */
+.danger-zone-chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.danger-zone-toggle[open] .danger-zone-chevron {
+  transform: rotate(90deg);
+}
+
+.danger-zone {
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid var(--danger);
+  border-radius: 14px;
+  background: rgba(229, 72, 77, 0.06);
+}
+
+.danger-zone-title {
+  margin: 0 0 4px;
+  font-weight: 700;
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.danger-zone-hint {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  opacity: 0.9;
+}
+
+#deleted-text {
+  margin-bottom: 16px;
 }
 
 main {
@@ -150,6 +416,9 @@ main {
 
 .add-row input {
   flex: 1;
+  min-width: 0; /* anders weigert een tekstveld in flexbox te krimpen, en
+                   duwt het de "Toevoegen"-knop op smalle schermen half
+                   buiten beeld */
   padding: 13px 16px;
   border-radius: 12px;
   border: 1px solid var(--border);
@@ -214,14 +483,197 @@ main {
 
 .list li {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 14px 14px;
   box-shadow: var(--shadow);
   transition: opacity 0.25s ease, transform 0.25s ease, background 0.15s ease;
+}
+
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.list li.list-divider {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 4px 4px 0;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.move-buttons {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.move-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 9px 8px;
+  border-radius: 8px;
+  transition: color 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+}
+
+.move-btn:hover:not(:disabled) {
+  color: var(--blue-600);
+  background: var(--blue-50);
+}
+
+.move-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.item-stale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(229, 169, 42, 0.12);
+  color: #a67312;
+  font-size: 0.78rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .item-stale {
+    background: rgba(229, 169, 42, 0.16);
+    color: var(--warning);
+  }
+}
+
+.stale-mute-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 2px 4px;
+  border-radius: 6px;
+  opacity: 0.75;
+}
+
+.stale-mute-btn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.pin-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid transparent;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 9px 9px;
+  border-radius: 8px;
+  /* 📌 is zelf al rood/oranje gekleurd — alleen doorzichtigheid als signaal
+     voor "niet vastgepind" viel in fel licht of op een klein scherm
+     nauwelijks op. Grijstinten geeft een veel duidelijker verschil. */
+  filter: grayscale(1);
+  opacity: 0.55;
+  transition: opacity 0.15s ease, background 0.15s ease, filter 0.15s ease;
+}
+
+.pin-btn:hover {
+  opacity: 0.85;
+  background: var(--blue-50);
+}
+
+.pin-btn.active {
+  filter: none;
+  opacity: 1;
+  background: var(--blue-50);
+  border-color: var(--blue-500);
+}
+
+.delete-btn {
+  /* Extra ruimte tot het pin-knopje ernaast — dat scheelt bij per ongeluk
+     de verkeerde (destructieve!) knop raken op een klein scherm. */
+  margin-left: 6px;
+}
+
+.item-meta {
+  margin-top: 6px;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.info-content p {
+  margin: 0 0 14px;
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.info-content ul {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.info-content li {
+  font-size: 0.88rem;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.info-content li strong {
+  color: var(--blue-600);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  /* Vervangen in JS door de werkelijke hoogte van de voettekst + wat
+     marge, zodat het balkje er nooit overheen hangt — dit is alleen de
+     terugvaloptie voor als dat om wat voor reden dan ook niet lukt. */
+  bottom: max(72px, env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #24262f;
+  color: white;
+  padding: 10px 10px 10px 16px;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.45);
+  font-size: 0.85rem;
+  z-index: 50;
+  max-width: calc(100vw - 32px);
+}
+
+#toast-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Eigen CSS zoals hierboven wint anders van de standaard [hidden]-regel
+   van de browser (die alleen "display: none" is), waardoor het balkje mét
+   het hidden-attribuut toch in beeld zou blijven staan. */
+.toast[hidden] {
+  display: none;
 }
 
 .list li.entering {
@@ -311,7 +763,7 @@ main {
   color: var(--muted);
   font-size: 1rem;
   cursor: pointer;
-  padding: 6px 8px;
+  padding: 9px 10px;
   border-radius: 8px;
   transition: color 0.15s ease, background 0.15s ease;
 }
