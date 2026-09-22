@@ -18,12 +18,13 @@
     <h1>
       <span class="emoji">📋</span>
       <button id="rename-btn" class="list-name-btn" type="button" title="Tik om de naam aan te passen">
+        <span id="list-lock-icon" title="Privé lijstje — alleen op dit toestel" hidden>🔒</span>
         <span id="list-name">Onze lijst</span>
       </button>
     </h1>
     <div class="topbar-actions">
       <button id="settings-btn" class="btn-icon" type="button" title="Instellingen">⚙️</button>
-      <button id="archive-btn" class="btn-icon" type="button" title="Archief (verwijderde items)">🗄️<span id="archive-count" class="archive-count" hidden></span></button>
+      <button id="archive-btn" class="btn-icon" type="button" title="Archief (verwijderde items)">🗄️</button>
       <button id="share-btn" class="btn btn-ghost btn-small">Delen</button>
     </div>
   </header>
@@ -35,18 +36,35 @@
       <h2>Archief</h2>
       <button id="archive-close-btn" class="btn-icon" type="button" title="Sluiten">✕</button>
     </div>
-    <p class="archive-panel-hint">Verwijderde items blijven hier 30 dagen staan, daarna gaan ze vanzelf definitief weg.</p>
+    <p class="archive-panel-hint">Verwijderde items blijven hier 30 dagen staan, daarna gaan ze vanzelf definitief weg. Je kunt een item ook direct definitief verwijderen.</p>
     <ul id="archive-list" class="list"></ul>
     <p id="archive-empty-hint" class="hint" hidden>Niks in het archief.</p>
 
     <details class="danger-zone-toggle">
-      <summary class="danger-zone-summary"><span class="danger-zone-chevron">▸</span> Deze lijst verwijderen…</summary>
+      <summary class="danger-zone-summary"><span class="danger-zone-chevron">▸</span> Dit lijstje verwijderen…</summary>
       <div class="danger-zone">
         <p class="danger-zone-title">Gevarenzone</p>
-        <p class="danger-zone-hint">Verwijdert deze hele lijst voor iedereen die de link/code heeft. Je hebt daarna nog 30 dagen om 'm terug te zetten.</p>
-        <button id="delete-list-btn" class="btn btn-danger btn-small" type="button">Verwijder deze lijst</button>
+        <p class="danger-zone-hint">Verwijdert dit lijstje (voor iedereen die de code heeft, als het gedeeld is). Je hebt daarna nog 30 dagen om 'm terug te zetten via het ☰-lijstjespaneel.</p>
+        <button id="delete-list-btn" class="btn btn-danger btn-small" type="button">Verwijder dit lijstje</button>
       </div>
     </details>
+  </div>
+
+  <div id="lists-panel" class="archive-panel" hidden>
+    <div class="archive-panel-header">
+      <h2>Lijstjes</h2>
+      <button id="lists-close-btn" class="btn-icon" type="button" title="Sluiten">✕</button>
+    </div>
+    <p class="archive-panel-hint">📌 Vastgezette lijstjes staan als tabblad bovenin. 🔒 = privé, alleen op dit toestel. Een • betekent: hier is iets veranderd sinds je 'm voor het laatst bekeek.</p>
+    <div class="settings-section-actions" style="margin-bottom: 12px;">
+      <button id="lists-add-btn" class="btn btn-ghost btn-small" type="button">+ Nieuw lijstje</button>
+    </div>
+    <ul id="lists-panel-list" class="list lists-panel-list"></ul>
+
+    <div id="lists-panel-archived-section" hidden>
+      <p class="settings-section-title" style="margin-top: 18px;">Onlangs verwijderd</p>
+      <ul id="lists-panel-archived" class="list lists-panel-list"></ul>
+    </div>
   </div>
 
   <div id="settings-panel" class="archive-panel" hidden>
@@ -76,15 +94,15 @@
     <div class="settings-section">
       <p class="settings-section-title">Hoe werkt dit?</p>
       <div class="info-content">
-        <p>Dit is een gedeelde lijst: iedereen met de link of code ziet 'm en past 'm meteen aan, bij iedereen tegelijk.</p>
+        <p>Eén code is een heel "gezinnetje": daaronder kunnen meerdere losse lijstjes hangen, gedeeld (iedereen met de code ziet 'm) of privé (alleen op dit toestel).</p>
         <ul>
           <li><strong>✅ Afvinken</strong> — klaar? Vink het aan. Per ongeluk? Vink het weer uit, of gebruik het "Ongedaan maken"-knopje dat even in beeld komt.</li>
-          <li><strong>✕ Verwijderen</strong> — het item gaat 30 dagen naar het archief (🗄️-knop hierboven), waar je het nog kunt terugzetten.</li>
+          <li><strong>✕ Verwijderen</strong> — het item gaat 30 dagen naar het archief (🗄️-knop hierboven), waar je het nog kunt terugzetten of meteen definitief kunt verwijderen.</li>
           <li><strong>↑ ↓ Volgorde</strong> — verschuif een openstaand item zelf naar boven of beneden.</li>
           <li><strong>📌 Vastpinnen</strong> — houdt een belangrijk item altijd bovenaan, ongeacht de volgorde.</li>
-          <li><strong>Tabbladen bovenin</strong> — voor meerdere losse lijstjes naast elkaar.</li>
-          <li><strong>Delen</strong> — stuurt de link waarmee anderen ook bij deze lijst kunnen.</li>
-          <li><strong>Code (onderin)</strong> — een kort stukje van de lijst-link. Handig om samen te controleren of twee toestellen echt naar dezelfde lijst kijken.</li>
+          <li><strong>☰ Lijstjes</strong> — al je lijstjes (gedeeld en privé), met eigen 📌-tabbladen en volgorde per toestel.</li>
+          <li><strong>Delen</strong> — stuurt de link waarmee anderen ook bij dit gedeelde lijstje kunnen (kan niet voor een privé lijstje).</li>
+          <li><strong>Code (onderin)</strong> — een kort stukje van de gezinscode. Handig om samen te controleren of twee toestellen echt naar hetzelfde gezinnetje wijzen.</li>
         </ul>
       </div>
     </div>
@@ -104,11 +122,6 @@
     </div>
   </main>
 
-  <div id="deleted-hint" class="hint centered" hidden>
-    <p id="deleted-text"></p>
-    <button id="restore-list-btn" class="btn btn-primary" type="button" hidden>Zet lijst terug</button>
-  </div>
-
   <p id="config-hint" class="hint centered" hidden>
     ⚠️ Vul eerst je Firebase-instellingen in <code>config.js</code> in — zie
     README.md.
@@ -117,7 +130,7 @@
   <footer class="statusbar">
     <span id="status-dot" class="status-dot"></span>
     <span id="sync-status">Verbinden...</span>
-    <button id="list-code-btn" class="list-code-btn" type="button" title="Tik om de lijst-code te controleren of aan te passen">
+    <button id="list-code-btn" class="list-code-btn" type="button" title="Tik om de gezins-code te controleren of aan te passen">
       Code: <code id="list-code-value">........</code>
     </button>
   </footer>

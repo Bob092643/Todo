@@ -1,13 +1,16 @@
-// Boodschappenlijst — gedeelde lijst via Firestore, geen login nodig.
-// Iedereen die de gedeelde link opent (met dezelfde ?lijst=code) ziet en
-// bewerkt dezelfde lijst, in realtime.
+// Boodschappenlijst — gedeeld gezinnetje via Firestore, geen login nodig.
+// Eén code (?lijst=code) is voortaan een heel "gezinnetje": daaronder
+// kunnen meerdere losse lijstjes hangen, gedeeld (voor iedereen met de
+// code) of privé (alleen op dit ene toestel).
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import {
   getFirestore,
   doc,
+  getDoc,
   setDoc,
   onSnapshot,
+  runTransaction,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const CHECK_ICON =
@@ -28,21 +31,24 @@ const el = {
   listCodeValue: document.getElementById("list-code-value"),
   renameBtn: document.getElementById("rename-btn"),
   listNameEl: document.getElementById("list-name"),
+  lockIcon: document.getElementById("list-lock-icon"),
   colorBtn: document.getElementById("color-btn"),
   colorPicker: document.getElementById("color-picker"),
   colorResetBtn: document.getElementById("color-reset-btn"),
   nameBtn: document.getElementById("name-btn"),
   listTabs: document.getElementById("list-tabs"),
+  listsPanel: document.getElementById("lists-panel"),
+  listsCloseBtn: document.getElementById("lists-close-btn"),
+  listsPanelList: document.getElementById("lists-panel-list"),
+  listsPanelArchivedSection: document.getElementById("lists-panel-archived-section"),
+  listsPanelArchived: document.getElementById("lists-panel-archived"),
+  listsAddBtn: document.getElementById("lists-add-btn"),
   archiveBtn: document.getElementById("archive-btn"),
-  archiveCount: document.getElementById("archive-count"),
   archivePanel: document.getElementById("archive-panel"),
   archiveCloseBtn: document.getElementById("archive-close-btn"),
   archiveList: document.getElementById("archive-list"),
   archiveEmptyHint: document.getElementById("archive-empty-hint"),
   deleteListBtn: document.getElementById("delete-list-btn"),
-  deletedHint: document.getElementById("deleted-hint"),
-  deletedText: document.getElementById("deleted-text"),
-  restoreListBtn: document.getElementById("restore-list-btn"),
   settingsBtn: document.getElementById("settings-btn"),
   settingsPanel: document.getElementById("settings-panel"),
   settingsCloseBtn: document.getElementById("settings-close-btn"),
@@ -69,9 +75,6 @@ function setSyncStatus(text, state = "neutral") {
 }
 
 // --- Persoonlijke kleur (alleen op dit toestel, niet gedeeld) ---
-// De hoofdkleur wordt aan de hand van één gekozen kleur automatisch
-// omgerekend naar de iets donkerdere/lichtere tinten die de app al
-// gebruikt (voor de kop, knoppen, en lichte accentvlakjes).
 const COLOR_STORAGE_KEY = "boodschappenlijst:kleur";
 
 function hexToHsl(hex) {
@@ -154,8 +157,6 @@ if (el.colorBtn && el.colorPicker) {
   });
 }
 
-// Terug naar de oorspronkelijke standaardkleur (ongedaan maken van een
-// eigen kleurkeuze op dit toestel).
 if (el.colorResetBtn) {
   el.colorResetBtn.addEventListener("click", () => {
     applyAccentColor(DEFAULT_COLOR);
@@ -169,9 +170,6 @@ if (el.colorResetBtn) {
 }
 
 // --- Persoonlijke naam (alleen op dit toestel) ---
-// Wordt gebruikt om te laten zien wie een item heeft toegevoegd of
-// afgevinkt. Niet verplicht — als iemand geen naam invult, wordt dat er
-// gewoon niet bij getoond.
 const NAME_STORAGE_KEY = "boodschappenlijst:naam";
 const NAME_ASKED_KEY = "boodschappenlijst:naam-gevraagd";
 
@@ -194,10 +192,6 @@ function saveMyName(name) {
 
 let myName = loadMyName();
 
-// Geeft een bruikbare naam terug, of null. Kan iemand die "xx" of "-"
-// intypt niet tegenhouden — maar filtert in elk geval lege invoer of een
-// enkel teken eruit, zodat zulke invoer niet als "naam" wordt opgeslagen
-// en overal in de lijst gaat verschijnen.
 function normalizeName(input) {
   const trimmed = (input || "").trim();
   return trimmed.length >= 2 ? trimmed : null;
@@ -226,9 +220,6 @@ if (el.nameBtn) {
   });
 }
 
-// Bij de allereerste keer op dit toestel eenmalig om een naam vragen —
-// daarna nooit meer opnieuw vragen (ook niet als iemand toen niets invulde),
-// om de app niet steeds te onderbreken.
 function askNameIfNeeded() {
   let asked = false;
   try {
@@ -255,16 +246,9 @@ function askNameIfNeeded() {
 }
 
 // --- Kort meldingsbalkje onderin, met "Ongedaan maken" ---
-// Een stapeltje in plaats van maar 1 plekje: als je snel twee dingen na
-// elkaar afvinkt/verwijdert, raakte eerder de eerste actie meteen z'n
-// "Ongedaan maken"-knopje kwijt (nog wel terug te vinden via het archief,
-// maar niet meer met 1 tik). Nu blijft elke actie even in de rij staan.
 let toastTimer = null;
 let undoStack = []; // { text, undo } — meest recente actie achteraan
 
-// Zet het balkje boven de voettekst (sync-status/Code) in plaats van
-// er half overheen — de voettekst-hoogte wordt bij elke keer opnieuw
-// opgemeten, voor het geval de tekst daarin ooit breder/hoger wordt.
 function positionToastAboveFooter() {
   if (!el.toast) return;
   const footer = document.querySelector(".statusbar");
@@ -290,7 +274,7 @@ function hideToast() {
 function showToast(text, undoFn) {
   if (!el.toast) return;
   undoStack.push({ text, undo: undoFn });
-  if (undoStack.length > 5) undoStack.shift(); // niet eindeloos laten opstapelen
+  if (undoStack.length > 5) undoStack.shift();
   clearTimeout(toastTimer);
   renderToast();
   toastTimer = setTimeout(hideToast, 5000);
@@ -324,36 +308,55 @@ function start() {
 
   const DEFAULT_LIST_NAME = "Onze lijst";
 
-  // --- Meerdere lijstjes naast elkaar ---
-  // Elk toestel onthoudt zélf welke lijstjes het kent (naam + code) en welk
-  // lijstje nu open staat. De lijstjes zelf staan gewoon in Firestore, dit
-  // is alleen de "kladlijst met snelkoppelingen" die lokaal op dit toestel
-  // leeft.
-  const LISTS_KEY = "boodschappenlijst:lijsten";
+  // ============================================================
+  // Lokale (per-toestel) opslag: privé lijstjes, tabblad-voorkeuren
+  // (vastgepind/volgorde), laatst-gezien-tijdstippen, en de "oude"
+  // sleutels die gebruikt worden om bestaande gebruikers naadloos over
+  // te zetten naar dit nieuwe systeem.
+  // ============================================================
+  const PRIVE_KEY = "boodschappenlijst:prive-lijsten";
+  const PRIVE_ARCHIEF_KEY = "boodschappenlijst:prive-archief";
+  const VOLGORDE_KEY = "boodschappenlijst:lijst-volgorde";
+  const GEZIEN_KEY = "boodschappenlijst:laatst-gezien";
   const ACTIVE_KEY = "boodschappenlijst:actieve-lijst";
-  // Uit de vorige versie van de app (toen er nog maar 1 lijstje per
-  // toestel kon zijn) — gebruikt om bestaande gebruikers naadloos te
-  // migreren naar het nieuwe, meerdere-lijstjes-systeem.
+  const TABS_GEMIGREERD_KEY = "boodschappenlijst:tabs-gemigreerd";
+  // Uit de allereerste versie (nog maar 1 lijstje per toestel, geen
+  // tabbladen).
   const OLD_STORAGE_KEY = "boodschappenlijst:laatste-lijst-id";
+  // Uit de vorige versie (wél tabbladen, maar elk tabblad een eigen, apart
+  // gedeelde code i.p.v. samen onder 1 gezinscode).
+  const OLD_LISTS_KEY = "boodschappenlijst:lijsten";
 
-  function loadLists() {
+  function loadJSON(key, fallback) {
     try {
-      const raw = localStorage.getItem(LISTS_KEY);
+      const raw = localStorage.getItem(key);
       const parsed = raw ? JSON.parse(raw) : null;
-      if (Array.isArray(parsed) && parsed.length) return parsed;
+      return parsed === null ? fallback : parsed;
     } catch (e) {
-      /* localStorage niet beschikbaar, of kapotte opgeslagen data */
+      return fallback;
     }
-    return null;
   }
 
-  function saveLists(value) {
+  function saveJSON(key, value) {
     try {
-      localStorage.setItem(LISTS_KEY, JSON.stringify(value));
+      localStorage.setItem(key, JSON.stringify(value));
     } catch (e) {
       /* werkt nog wel voor deze sessie, wordt alleen niet onthouden */
     }
   }
+
+  let priveLijsten = loadJSON(PRIVE_KEY, []);
+  let priveArchief = loadJSON(PRIVE_ARCHIEF_KEY, []);
+  // volgorde: array van { id, pinned } — bepaalt tabblad-zichtbaarheid én
+  // onderlinge volgorde, hetzelfde patroon als vastpinnen/verschuiven bij
+  // losse boodschappen (zie activeIndexOrder/moveItem verderop).
+  let volgorde = loadJSON(VOLGORDE_KEY, []);
+  let laatstGezien = loadJSON(GEZIEN_KEY, {});
+
+  function savePrive() { saveJSON(PRIVE_KEY, priveLijsten); }
+  function savePriveArchief() { saveJSON(PRIVE_ARCHIEF_KEY, priveArchief); }
+  function saveVolgorde() { saveJSON(VOLGORDE_KEY, volgorde); }
+  function saveGezien() { saveJSON(GEZIEN_KEY, laatstGezien); }
 
   function saveActive(id) {
     try {
@@ -363,142 +366,243 @@ function start() {
     }
   }
 
+  // Zorgt dat een lijst-id in de lokale volgorde-lijst staat. Gloednieuwe
+  // lijstjes komen standaard NIET vastgepind binnen (behalve de eerste
+  // ooit, dan moet er wel meteen een zichtbaar tabblad zijn).
+  function ensureInVolgorde(id, { pinned } = {}) {
+    if (volgorde.some((v) => v.id === id)) return;
+    const defaultPinned = volgorde.length === 0;
+    volgorde.push({ id, pinned: pinned !== undefined ? pinned : defaultPinned });
+    saveVolgorde();
+  }
+
+  function removeFromVolgorde(id) {
+    volgorde = volgorde.filter((v) => v.id !== id);
+    saveVolgorde();
+  }
+
+  // ============================================================
+  // Welk gezinnetje (code) en welk lijstje daarbinnen staat er nu open.
+  // ============================================================
+  const HOUSEHOLD_KEY = "boodschappenlijst:gezins-code";
   const params = new URLSearchParams(location.search);
-  const urlListId = params.get("lijst");
+  let householdCode = params.get("lijst");
 
-  let lists = loadLists();
-
-  if (!lists) {
-    // Eerste keer op dit toestel, of migratie vanaf de vorige versie
-    // (die nog maar 1 lijstje per toestel kende).
-    let migratedId = null;
-    try {
-      migratedId = localStorage.getItem(OLD_STORAGE_KEY);
-    } catch (e) {
-      /* geen probleem */
-    }
-    const startId = migratedId || urlListId || crypto.randomUUID();
-    lists = [{ id: startId, naam: DEFAULT_LIST_NAME }];
-    saveLists(lists);
-    saveActive(startId);
-  }
-
-  let listId = null;
+  // Onthouden welke gezinscode dit toestel voor het laatst gebruikte — zo
+  // blijft, net als voorheen, de bewaarde code gebruikt als de app zonder
+  // "?lijst=" wordt geopend (bijv. vanaf een geïnstalleerd app-icoontje).
+  let bewaardeCode = null;
   try {
-    listId = localStorage.getItem(ACTIVE_KEY);
+    bewaardeCode = localStorage.getItem(HOUSEHOLD_KEY);
   } catch (e) {
-    /* niet erg */
-  }
-  if (!listId || !lists.some((l) => l.id === listId)) {
-    listId = lists[0].id;
-    saveActive(listId);
+    /* geen probleem */
   }
 
-  // Een link met een lijst-code die je nog niet kent (bv. gedeeld door een
-  // gezinslid): voeg 'm toe als nieuw tabblad en open 'm meteen. Een code
-  // die je al kent, schakelt gewoon naar dat bestaande tabblad. Zo kan het
-  // openen van een link nooit een ander lijstje overschrijven — er komt
-  // hooguit een tabblad bij.
-  if (urlListId && urlListId !== listId) {
-    if (!lists.some((l) => l.id === urlListId)) {
-      lists.push({ id: urlListId, naam: "Lijst" });
-      saveLists(lists);
-    }
-    listId = urlListId;
-    saveActive(listId);
+  // Migratie vanaf de zeer oude, tabblad-loze versie.
+  let oudeMigratieId = null;
+  try {
+    oudeMigratieId = localStorage.getItem(OLD_STORAGE_KEY);
+  } catch (e) {
+    /* geen probleem */
   }
 
-  // Adresbalk altijd gelijk laten lopen met het lijstje dat nu écht actief is.
-  params.set("lijst", listId);
+  // Migratie vanaf de vorige tabbladen-versie (losse codes per tabblad).
+  const oudeTabs = loadJSON(OLD_LISTS_KEY, null); // array van {id, naam} of null
+
+  if (!householdCode) {
+    householdCode = bewaardeCode || oudeMigratieId || (oudeTabs && oudeTabs[0] && oudeTabs[0].id) || crypto.randomUUID();
+  }
+
+  try {
+    localStorage.setItem(HOUSEHOLD_KEY, householdCode);
+  } catch (e) {
+    /* niet erg, werkt nog wel voor deze sessie */
+  }
+
+  params.set("lijst", householdCode);
   history.replaceState(null, "", `${location.pathname}?${params.toString()}`);
 
-  const listRef = doc(db, "lists", listId);
+  const householdRef = doc(db, "lists", householdCode);
+
+  // Live-gehouden kopie van wat er in het gezinnetje-document staat —
+  // nodig om bij het opslaan van 1 lijstje de andere (mogelijk ondertussen
+  // door iemand anders gewijzigde) lijstjes niet per ongeluk te
+  // overschrijven.
+  let householdLijsten = [];
+  let householdArchivedLijsten = [];
+  // Zorgt dat opeenvolgende saveHousehold()-aanroepen netjes op hun beurt
+  // wachten in plaats van elkaar in de weg te zitten (zie saveHousehold
+  // verderop). Moet hier al bestaan, vóór de live-koppeling (onSnapshot)
+  // hieronder wordt gestart — die kan namelijk METEEN, nog synchroon
+  // tijdens het opstarten, een eerste saveHousehold() aanroepen.
+  let householdSaveChain = Promise.resolve();
+
+  let items = [];
+  let archivedItems = [];
+  let listName = DEFAULT_LIST_NAME;
+  let activeId = null;
+  let activePrive = false;
+  let knownIds = new Set();
+  let saveTimer = null;
+  let archiveOpen = false;
+  let settingsOpen = false;
+  let listsOpen = false;
+
+  function setListName(name) {
+    listName = name && name.trim() ? name.trim() : DEFAULT_LIST_NAME;
+    el.listNameEl.textContent = listName;
+    document.title = listName;
+  }
+  setListName(DEFAULT_LIST_NAME);
+
+  function updateLockIcon() {
+    if (el.lockIcon) el.lockIcon.hidden = !activePrive;
+  }
+
+  // --- Alle bekende lijstjes bij elkaar (gedeeld + privé), voor tabbladen
+  //     en het "Lijstjes"-paneel. ---
+  function getAllLists() {
+    return [
+      ...householdLijsten.map((l) => ({ ...l, prive: false })),
+      ...priveLijsten.map((l) => ({ ...l, prive: true })),
+    ];
+  }
+
+  function findList(id) {
+    return getAllLists().find((l) => l.id === id) || null;
+  }
+
+  function heeftIetsNieuws(l) {
+    if (l.prive || l.id === activeId) return false;
+    const gezien = laatstGezien[l.id] || 0;
+    return (l.updatedAt || 0) > gezien;
+  }
+
+  // Zelfde subgroeps-volgorde-patroon als bij losse boodschappen: bepaalt
+  // de volgorde binnen "vastgepind" resp. "niet vastgepind", zodat de
+  // pijltjes nooit een lijstje tussen de andere groep laten belanden.
+  function volgordeIndexOrder(pinned) {
+    const order = [];
+    volgorde.forEach((v, i) => {
+      if (!!v.pinned === !!pinned) order.push(i);
+    });
+    return order;
+  }
+
+  function moveList(id, direction) {
+    const myIndex = volgorde.findIndex((v) => v.id === id);
+    if (myIndex === -1) return;
+    const order = volgordeIndexOrder(volgorde[myIndex].pinned);
+    const pos = order.indexOf(myIndex);
+    if (pos === -1) return;
+    const swapPos = pos + direction;
+    if (swapPos < 0 || swapPos >= order.length) return;
+    const otherIndex = order[swapPos];
+    [volgorde[myIndex], volgorde[otherIndex]] = [volgorde[otherIndex], volgorde[myIndex]];
+    saveVolgorde();
+    renderTabsAndPanel();
+  }
+
+  function togglePin(id) {
+    const entry = volgorde.find((v) => v.id === id);
+    if (!entry) return;
+    entry.pinned = !entry.pinned;
+    saveVolgorde();
+    renderTabsAndPanel();
+  }
 
   async function switchToList(id) {
-    // Eerst een eventuele nog-niet-opgeslagen wijziging (binnen de korte
-    // vertraging na typen/afvinken) meteen wegschrijven — anders zou een
-    // snelle wisseling van tabblad die laatste wijziging kunnen verliezen.
     await flushPendingSave();
-    saveActive(id);
+    const target = findList(id);
+    if (!target) return;
+
+    // Rechtstreeks de gegevens verversen in plaats van de hele pagina
+    // opnieuw te laden — dat gaf voorheen heel eventjes een verkeerde
+    // (oude, of de standaard-placeholder) titel te zien terwijl de pagina
+    // aan het herladen was.
+    applyActiveTarget(target);
+    // Anders denkt de "net toegevoegd"-animatie dat ALLE boodschappen van
+    // dit andere lijstje gloednieuw zijn (ze stonden immers niet in het
+    // vorige lijstje), en flitst alles even mee als "binnenkomend".
+    knownIds = new Set(items.map((i) => i.id));
+
     const p = new URLSearchParams(location.search);
-    p.set("lijst", id);
-    location.href = `${location.pathname}?${p.toString()}`;
+    p.set("lijst", householdCode);
+    p.set("actief", id);
+    params.set("actief", id);
+    history.replaceState(null, "", `${location.pathname}?${p.toString()}`);
+
+    archiveOpen = false;
+    settingsOpen = false;
+    listsOpen = false;
+    updateDeletedView();
+    render();
+    renderArchive();
+    renderTabsAndPanel();
   }
 
-  function renderTabs() {
-    if (!el.listTabs) return;
-    el.listTabs.innerHTML = "";
-    el.listTabs.hidden = false;
-
-    for (const l of lists) {
-      const tab = document.createElement("button");
-      tab.type = "button";
-      tab.className = "list-tab" + (l.id === listId ? " active" : "");
-      tab.title = l.naam || "Lijst";
-
-      const label = document.createElement("span");
-      label.className = "list-tab-label";
-      label.textContent = l.naam || "Lijst";
-      tab.appendChild(label);
-
-      tab.addEventListener("click", () => {
-        if (l.id !== listId) switchToList(l.id);
-      });
-
-      // Alleen laten "vergeten" als er nog een ander lijstje overblijft.
-      if (lists.length > 1) {
-        const removeBtn = document.createElement("span");
-        removeBtn.className = "list-tab-remove";
-        removeBtn.textContent = "✕";
-        removeBtn.title = "Dit lijstje hier niet meer tonen";
-        removeBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if (
-            !confirm(
-              `"${l.naam || "Lijst"}" hier niet meer laten zien op dit toestel?\n\nHet lijstje zelf blijft gewoon bestaan — jij (met de code) en anderen kunnen er nog steeds bij.`
-            )
-          ) {
-            return;
-          }
-          lists = lists.filter((x) => x.id !== l.id);
-          saveLists(lists);
-          if (l.id === listId) {
-            switchToList(lists[0].id);
-          } else {
-            renderTabs();
-          }
-        });
-        tab.appendChild(removeBtn);
-      }
-
-      el.listTabs.appendChild(tab);
+  // "Verberg dit lijstje voor mij" — alleen voor gedeelde lijstjes (privé
+  // lijstjes hebben geen link om ooit weer terug te vinden, dus die niet
+  // per ongeluk laten verdwijnen).
+  function hideList(id) {
+    const l = findList(id);
+    if (!l || l.prive) return;
+    if (
+      !confirm(
+        `"${l.naam || "Lijst"}" hier niet meer laten zien op dit toestel?\n\nHet lijstje zelf blijft gewoon bestaan — jij (met de code) en anderen kunnen er nog steeds bij.`
+      )
+    ) {
+      return;
     }
-
-    const addBtn = document.createElement("button");
-    addBtn.type = "button";
-    addBtn.className = "list-tab list-tab-add";
-    addBtn.textContent = "+";
-    addBtn.title = "Lijstje toevoegen";
-    addBtn.addEventListener("click", addList);
-    el.listTabs.appendChild(addBtn);
+    removeFromVolgorde(id);
+    delete laatstGezien[id];
+    saveGezien();
+    if (id === activeId) {
+      const rest = getAllLists().filter((x) => x.id !== id);
+      if (rest.length > 0) {
+        switchToList(rest[0].id);
+      } else {
+        addList(true);
+      }
+    } else {
+      renderTabsAndPanel();
+    }
   }
 
-  function addList() {
-    const nieuw = confirm(
+  function addList(gedwongenNieuw) {
+    const nieuw = gedwongenNieuw || confirm(
       "Nieuw leeg lijstje maken?\n\nOK = een gloednieuw lijstje aanmaken\nAnnuleren = een bestaand lijstje toevoegen via een code die je hebt gekregen"
     );
 
     if (nieuw) {
       const naam = prompt("Naam voor het nieuwe lijstje:", "Nieuw lijstje");
       if (naam === null) return; // geannuleerd
+      const gedeeld = confirm(
+        "Delen met je gezin (iedereen met de code ziet dit lijstje), of liever privé (alleen op dit toestel)?\n\nOK = delen met je gezin\nAnnuleren = privé houden"
+      );
       const id = crypto.randomUUID();
-      lists.push({ id, naam: naam.trim() || "Nieuw lijstje" });
-      saveLists(lists);
+      const nieuwLijstje = {
+        id,
+        naam: naam.trim() || "Nieuw lijstje",
+        items: [],
+        archivedItems: [],
+        updatedAt: Date.now(),
+      };
+      if (gedeeld) {
+        householdLijsten.push(nieuwLijstje);
+        ensureInVolgorde(id);
+        saveHousehold();
+      } else {
+        priveLijsten.push(nieuwLijstje);
+        savePrive();
+        ensureInVolgorde(id);
+        renderTabsAndPanel();
+      }
       switchToList(id);
       return;
     }
 
-    const code = prompt("Plak hier de code (of de hele link) van het lijstje dat je erbij wilt:");
+    const code = prompt("Plak hier de code (of de hele link) van het gezinnetje dat je erbij wilt:");
     if (code === null) return; // geannuleerd
     let trimmed = code.trim();
     try {
@@ -510,133 +614,168 @@ function start() {
     }
     if (!trimmed) return;
     if (trimmed.includes("/")) {
-      alert("Deze code mag geen \"/\" bevatten. Controleer of je de juiste code hebt geplakt.");
+      alert('Deze code mag geen "/" bevatten. Controleer of je de juiste code hebt geplakt.');
       return;
     }
-    if (!lists.some((l) => l.id === trimmed)) {
-      lists.push({ id: trimmed, naam: "Lijst" });
-      saveLists(lists);
-    }
-    switchToList(trimmed);
+    // Overstappen naar een heel ander gezinnetje: dit toestel kan er maar
+    // 1 tegelijk actief volgen (net als eerst 1 code per toestel).
+    const p = new URLSearchParams();
+    p.set("lijst", trimmed);
+    location.href = `${location.pathname}?${p.toString()}`;
   }
 
-  renderTabs();
-
-  // Toon de eerste 8 tekens van de lijst-code onderin, zodat je op twee
-  // telefoons naast elkaar kunt controleren of ze naar dezelfde lijst
-  // wijzen. Tikken opent de vólledige code, zodat je 'm kunt controleren
-  // en — indien nodig — kunt vervangen door een andere (dit tábblad blijft
-  // dan bestaan, alleen de code erachter verandert).
-  el.listCodeValue.textContent = listId.slice(0, 8);
+  el.listCodeValue.textContent = householdCode.slice(0, 8);
   el.listCodeBtn.addEventListener("click", () => {
-    const next = prompt("Lijst-code (controleer of dit klopt, of plak hier een andere):", listId);
-    if (next === null) return; // geannuleerd, niets aanpassen
-
-    // Mensen plakken hier weleens de hele link in plaats van alleen het
-    // codestukje erachter — haal 'm er dan automatisch uit.
+    const next = prompt("Gezins-code (controleer of dit klopt, of plak hier een andere):", householdCode);
+    if (next === null) return;
     let trimmed = next.trim();
     try {
       const maybeUrl = new URL(trimmed);
       const fromUrl = maybeUrl.searchParams.get("lijst");
       if (fromUrl) trimmed = fromUrl.trim();
     } catch (e) {
-      /* was geen volledige link, gewoon de geplakte tekst zelf gebruiken */
+      /* was geen volledige link */
     }
-
-    if (!trimmed || trimmed === listId) return; // niets veranderd
-
-    // Een "/" zou de verwijzing naar de verkeerde plek in de database sturen
-    // — dat laten we niet toe, met een duidelijke uitleg waarom.
+    if (!trimmed || trimmed === householdCode) return;
     if (trimmed.includes("/")) {
-      alert("Deze code mag geen \"/\" bevatten. Controleer of je de juiste code hebt geplakt.");
+      alert('Deze code mag geen "/" bevatten. Controleer of je de juiste code hebt geplakt.');
       return;
     }
-
-    const entry = lists.find((l) => l.id === listId);
-    if (entry) entry.id = trimmed;
-    saveLists(lists);
-    switchToList(trimmed);
+    const p = new URLSearchParams();
+    p.set("lijst", trimmed);
+    location.href = `${location.pathname}?${p.toString()}`;
   });
 
-  let items = [];
-  let archivedItems = []; // verwijderde items, nog binnen de 30-dagen-termijn
-  let deletedAt = null; // gezet zodra de hele lijst "verwijderd" is
-  let knownIds = new Set(); // voor de "nieuw binnengekomen" animatie
-  let saveTimer = null;
-  // Of het archiefpaneel resp. het instellingenpaneel nu open staat — eigen,
-  // lokale schermkeuzes die niet door een (mogelijk synchroon binnenkomende)
-  // onSnapshot-update ongedaan gemaakt mogen worden. Moeten vóór de
-  // onSnapshot-registratie hieronder bestaan, want de eerste update kan
-  // daar synchroon binnenkomen.
-  let archiveOpen = false;
-  let settingsOpen = false;
-
-  // --- Naam van de lijst, gedeeld met iedereen die de link heeft ---
-  let listName = DEFAULT_LIST_NAME;
-
-  function setListName(name) {
-    listName = name && name.trim() ? name.trim() : DEFAULT_LIST_NAME;
-    el.listNameEl.textContent = listName;
-    document.title = listName;
-  }
-
-  setListName(DEFAULT_LIST_NAME);
-
   el.renameBtn.addEventListener("click", () => {
-    const next = prompt("Nieuwe naam voor jullie lijst:", listName);
-    if (next === null) return; // geannuleerd
+    const next = prompt("Nieuwe naam voor dit lijstje:", listName);
+    if (next === null) return;
     setListName(next);
-    const entry = lists.find((l) => l.id === listId);
-    if (entry && entry.naam !== listName) {
-      entry.naam = listName;
-      saveLists(lists);
-      renderTabs();
-    }
+    const entry = activePrive
+      ? priveLijsten.find((l) => l.id === activeId)
+      : householdLijsten.find((l) => l.id === activeId);
+    if (entry) entry.naam = listName;
+    renderTabsAndPanel();
     scheduleSave();
   });
 
   el.app.hidden = false;
   setSyncStatus("Verbinden...");
-  // Even laten wachten tot ná het opzetten van de synchronisatie (hieronder),
-  // zodat een eventuele naam-vraag (een blokkerend dialoogvenster) nooit het
-  // meteen laden en synchroniseren van de lijst zelf ophoudt.
   setTimeout(askNameIfNeeded, 300);
 
+  // ============================================================
+  // Eenmalige migratie van losse, eerder-bekende tabbladen (uit de vorige
+  // versie: elk tabblad een eigen, apart gedeelde code) naar dit
+  // gezinnetje. Draait maar 1 keer per toestel.
+  // ============================================================
+  async function migreerOudeTabs() {
+    let gedaan = false;
+    try {
+      gedaan = localStorage.getItem(TABS_GEMIGREERD_KEY) === "1";
+    } catch (e) {
+      /* dan proberen we het gewoon */
+    }
+    if (gedaan || !oudeTabs || oudeTabs.length <= 1) {
+      try { localStorage.setItem(TABS_GEMIGREERD_KEY, "1"); } catch (e) { /* niet erg */ }
+      return;
+    }
+    for (const tab of oudeTabs) {
+      if (tab.id === householdCode) continue; // dit ís het gezinnetje al
+      try {
+        const snap = await getDoc(doc(db, "lists", tab.id));
+        if (!snap.exists()) continue;
+        const data = snap.data();
+        const isOudPlatteLijst = data && !data.lijsten;
+        if (!isOudPlatteLijst) continue;
+        const naam = tab.naam || data.listName || "Lijst";
+        const gedeeld = confirm(
+          `Dit losse lijstje "${naam}" stond nog apart op dit toestel. Samenvoegen bij je gezinscode?\n\nOK = delen met je gezin\nAnnuleren = privé houden (alleen op dit toestel)`
+        );
+        const nieuwId = crypto.randomUUID();
+        const overgezet = {
+          id: nieuwId,
+          naam,
+          items: data.items || [],
+          archivedItems: data.archivedItems || [],
+          updatedAt: Date.now(),
+        };
+        if (gedeeld) {
+          householdLijsten.push(overgezet);
+        } else {
+          priveLijsten.push(overgezet);
+          savePrive();
+        }
+        ensureInVolgorde(nieuwId, { pinned: false });
+      } catch (e) {
+        console.error("Kon los tabblad niet meenemen:", tab, e);
+      }
+    }
+    try { localStorage.setItem(TABS_GEMIGREERD_KEY, "1"); } catch (e) { /* niet erg */ }
+    saveHousehold();
+    renderTabsAndPanel();
+  }
+
   onSnapshot(
-    listRef,
+    householdRef,
     (snap) => {
       const data = snap.exists() ? snap.data() : {};
-      items = data.items || [];
-      archivedItems = data.archivedItems || [];
-      deletedAt = data.deletedAt || null;
 
-      if (!snap.exists()) {
-        // Gloednieuw (nog leeg) lijstje: gebruik de naam die net bij het
-        // aanmaken/toevoegen is gekozen als startnaam, en sla die meteen op
-        // zodat ook anderen die de link krijgen 'm meteen goed zien.
-        const entry = lists.find((l) => l.id === listId);
-        setListName(entry ? entry.naam : DEFAULT_LIST_NAME);
-        scheduleSave();
-      } else {
-        setListName(data.listName);
-        // Houd het tabblad-label in de pas met de echte (gedeelde) naam.
-        const entry = lists.find((l) => l.id === listId);
-        if (entry && entry.naam !== listName) {
-          entry.naam = listName;
-          saveLists(lists);
-          renderTabs();
+      if (!data.lijsten) {
+        // Oude platte structuur (of nog helemaal leeg): omzetten naar het
+        // nieuwe formaat. Idempotent — zodra "lijsten" bestaat, gebeurt dit
+        // nooit meer, ook niet als 2 toestellen dit tegelijk tegenkomen.
+        if (snap.exists() && (data.items || data.listName)) {
+          const gemigreerdeLijst = {
+            id: crypto.randomUUID(),
+            naam: data.listName || DEFAULT_LIST_NAME,
+            items: data.items || [],
+            archivedItems: data.archivedItems || [],
+            updatedAt: data.updatedAt || Date.now(),
+          };
+          if (data.deletedAt) {
+            gemigreerdeLijst.deletedAt = data.deletedAt;
+            householdLijsten = [];
+            householdArchivedLijsten = [gemigreerdeLijst];
+          } else {
+            householdLijsten = [gemigreerdeLijst];
+            householdArchivedLijsten = [];
+          }
+        } else {
+          // Gloednieuw gezinnetje: begin met 1 leeg standaard-lijstje.
+          householdLijsten = [
+            { id: crypto.randomUUID(), naam: DEFAULT_LIST_NAME, items: [], archivedItems: [], updatedAt: Date.now() },
+          ];
+          householdArchivedLijsten = [];
         }
+        // Niet wachten op een nieuwe snapshot-rondgang voor het eerste
+        // scherm (dat zou een onnodige vertraging geven) — meteen
+        // verderwerken met deze net-omgezette data, en op de achtergrond
+        // opslaan.
+        saveHousehold();
+      } else {
+        householdLijsten = data.lijsten;
+        householdArchivedLijsten = data.archivedLijsten || [];
       }
 
-      // Archiefitems die al langer dan 30 dagen geleden zijn verwijderd,
-      // definitief opruimen (gebeurt op elk toestel dat toevallig deze
-      // lijst opent — er draait geen server die dit los doet).
-      const purged = purgeExpiredArchive();
+      // Opgeruimde (>30 dagen oude) archief-lijstjes definitief weg.
+      const purgedLijsten = purgeExpiredLists();
 
-      // Items van vóór deze update hebben nog geen "sinds wanneer staat dit
-      // hier"-datum — die krijgen 'm nu alsnog (vanaf nu, niet met
-      // terugwerkende kracht), zodat ze niet meteen als "al lang geleden"
-      // verschijnen.
+      // Nu we het gezinnetje kennen: eenmalige migratie van losse oude
+      // tabbladen (mag pas ná de eerste succesvolle snapshot, anders weten
+      // we nog niet zeker of "lijsten" al bestond).
+      migreerOudeTabs();
+
+      // Zorg dat ELK gedeeld lijstje (dus ook eentje dat iemand anders op
+      // een ander toestel heeft aangemaakt en dat nu voor het eerst hier
+      // binnenkomt) in de lokale volgorde-lijst staat — anders bestaat het
+      // lijstje wel, maar duikt het nooit op in het ☰-paneel of als
+      // tabblad, want dat rendert uitsluitend op basis van `volgorde`.
+      // Alleen `resolveActiveList()` aanroepen dekte enkel het op dit
+      // toestel actieve lijstje, niet de rest.
+      householdLijsten.forEach((l) => ensureInVolgorde(l.id));
+
+      resolveActiveList();
+
+      const purgedItems = purgeExpiredArchive();
       let backfilled = false;
       for (const item of items) {
         if (!item.createdAt) {
@@ -648,8 +787,9 @@ function start() {
       updateDeletedView();
       render();
       renderArchive();
+      renderTabsAndPanel();
       setSyncStatus("Gesynchroniseerd " + new Date().toLocaleTimeString(), "synced");
-      if (purged || backfilled) scheduleSave();
+      if (purgedItems || backfilled || purgedLijsten) scheduleSave();
     },
     (err) => {
       console.error("Synchronisatiefout:", err);
@@ -657,16 +797,53 @@ function start() {
     }
   );
 
+  // Zet een gevonden lijstje als het actieve lijstje in de werkvariabelen
+  // (zonder verder iets te tekenen of op te slaan — dat doen de aanroepers
+  // hierna zelf, op het moment dat bij hen past).
+  function applyActiveTarget(target) {
+    activeId = target.id;
+    activePrive = !!target.prive;
+    items = target.items || [];
+    archivedItems = target.archivedItems || [];
+    setListName(target.naam);
+    updateLockIcon();
+    ensureInVolgorde(activeId);
+    saveActive(activeId);
+
+    laatstGezien[activeId] = target.updatedAt || Date.now();
+    saveGezien();
+  }
+
+  // Bepaalt welk lijstje nu actief moet zijn, en laadt de bijbehorende
+  // items/naam in de werkvariabelen. Wordt na elke snapshot opnieuw
+  // gedraaid (goedkoop, en zo blijven we ook consistent als het huidige
+  // lijstje ondertussen ergens anders is verwijderd).
+  function resolveActiveList() {
+    const gevraagdeId = params.get("actief") || localStorage.getItem(ACTIVE_KEY);
+    let target = null;
+
+    if (gevraagdeId) target = findList(gevraagdeId);
+    if (!target) target = getAllLists()[0] || null;
+
+    if (!target) {
+      // Kan alleen gebeuren als zowel gedeeld als privé helemaal leeg zijn
+      // (bijv. na het verwijderen van het allerlaatste lijstje) — dan
+      // meteen een nieuw standaard-lijstje aanmaken.
+      const fallback = { id: crypto.randomUUID(), naam: DEFAULT_LIST_NAME, items: [], archivedItems: [], updatedAt: Date.now() };
+      householdLijsten.push(fallback);
+      ensureInVolgorde(fallback.id);
+      target = { ...fallback, prive: false };
+    }
+
+    applyActiveTarget(target);
+  }
+
   function scheduleSave() {
     clearTimeout(saveTimer);
     setSyncStatus("Wijzigen...", "saving");
     saveTimer = setTimeout(saveList, 400);
   }
 
-  // Schrijft een nog "in de wacht" staande wijziging (uit scheduleSave)
-  // meteen weg, in plaats van te wachten op de normale korte vertraging.
-  // Nodig vlak vóórdat de pagina ergens anders naartoe gaat (bv. wisselen
-  // van tabblad), anders zou die wijziging nooit opgeslagen worden.
   async function flushPendingSave() {
     if (saveTimer) {
       clearTimeout(saveTimer);
@@ -675,10 +852,97 @@ function start() {
     }
   }
 
-  async function saveList() {
+  // Een wijziging wordt pas na 400ms opgeslagen (zodat snel achter elkaar
+  // typen niet voor elk toetsaanslag een aparte opslag geeft). Als iemand
+  // direct daarna de app wegklikt (van app wisselt, telefoon vergrendelt,
+  // tabblad sluit) vóórdat die 400ms voorbij zijn, zou die laatste
+  // wijziging anders verloren kunnen gaan. Daarom: zodra de app niet meer
+  // zichtbaar is, meteen een eventueel wachtende opslag alsnog uitvoeren.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushPendingSave();
+  });
+  // "visibilitychange" vuurt betrouwbaar bij van-app-wisselen/vergrendelen,
+  // maar niet altijd bij het navigeren binnen hetzelfde tabblad (bijv. het
+  // wisselen van lijstje) — "pagehide" wél, dus als extra vangnet.
+  window.addEventListener("pagehide", () => {
+    flushPendingSave();
+  });
+
+  // Voegt onze eigen (mogelijk deels verouderde) stand van de lijstjes
+  // samen met de nieuwste stand op de server — lijstje voor lijstje, in
+  // plaats van in één keer de hele verzameling te overschrijven. Zo kan
+  // het opslaan van hier nooit een wijziging aan een ANDER lijstje
+  // kwijtraken die intussen door iemand anders is gedaan, ook al hadden
+  // wij die wijziging zelf nog niet gezien: we nemen per lijstje gewoon
+  // de meest recente van de twee, aan de hand van het eigen tijdstip van
+  // dát ene lijstje (`updatedAt`, of `deletedAt` voor een gearchiveerde),
+  // niet van het hele document ineens.
+  function mergeHouseholdState(serverLijsten, serverArchivedLijsten) {
+    const record = new Map(); // lijst-id -> { lijst, archief, tijd }
+
+    const overweeg = (l, archief) => {
+      if (!l || !l.id) return;
+      const tijd = (archief ? l.deletedAt : l.updatedAt) || 0;
+      const bestaand = record.get(l.id);
+      // ">=" (niet enkel ">"): bij een gelijk tijdstip wint de kant die
+      // hierna wordt overwogen — dat is bewust altijd onze EIGEN stand
+      // (zie hieronder), zodat een lijstje dat wij zojuist zelf hebben
+      // aangepast nooit per ongeluk verliest van een toevallig even oude
+      // serverkopie.
+      if (!bestaand || tijd >= bestaand.tijd) {
+        record.set(l.id, { lijst: l, archief, tijd });
+      }
+    };
+
+    serverLijsten.forEach((l) => overweeg(l, false));
+    serverArchivedLijsten.forEach((l) => overweeg(l, true));
+    householdLijsten.forEach((l) => overweeg(l, false));
+    householdArchivedLijsten.forEach((l) => overweeg(l, true));
+
+    const lijsten = [];
+    const archivedLijsten = [];
+    record.forEach(({ lijst, archief }) => (archief ? archivedLijsten : lijsten).push(lijst));
+    return { lijsten, archivedLijsten };
+  }
+
+  // Meerdere plekken in de app kunnen (bijna) tegelijk saveHousehold()
+  // aanroepen (bijv. iemand die snel achter elkaar iets doet, of het
+  // meenemen van een oud los tabblad terwijl er net ook al een gewone
+  // wijziging aan het opslaan was). Laat die niet allemaal hun EIGEN
+  // afzonderlijke lees-en-samenvoeg-ronde tegelijk doen — dat kan elkaar
+  // onnodig in de weg zitten — maar zet ze gewoon netjes achter elkaar in
+  // een rijtje, zodat elke opslag altijd verdergaat op de meest recente,
+  // al bijgewerkte stand. ("householdSaveChain" zelf staat hierboven al
+  // gedeclareerd, vóór de live-koppeling wordt gestart.)
+  function saveHousehold() {
+    const beurt = householdSaveChain.then(() => saveHouseholdNu());
+    // Een mislukte opslag mag de wachtrij niet blijvend blokkeren voor
+    // latere pogingen.
+    householdSaveChain = beurt.catch(() => {});
+    return beurt;
+  }
+
+  async function saveHouseholdNu() {
     setSyncStatus("Opslaan...", "saving");
     try {
-      await setDoc(listRef, { items, archivedItems, listName, deletedAt, updatedAt: Date.now() });
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(householdRef);
+        const server = snap.exists() ? snap.data() : {};
+        const merged = mergeHouseholdState(server.lijsten || [], server.archivedLijsten || []);
+        transaction.set(householdRef, {
+          lijsten: merged.lijsten,
+          archivedLijsten: merged.archivedLijsten,
+          updatedAt: Date.now(),
+        });
+      });
+      // Bewust NIET hierna nog even snel "householdLijsten" gelijkzetten aan
+      // wat we net hebben weggeschreven: terwijl dit opslaan onderweg was
+      // (de transactie doet zelf ook weer een aparte lees-actie), kan er
+      // intussen alweer iets nieuws lokaal zijn bijgekomen of veranderd
+      // (bijv. een tweede snelle wijziging, of het meenemen van een oud
+      // los tabblad) — dat zou dan alsnog verloren gaan. Onze eigen
+      // live-koppeling (onSnapshot) hoort deze schrijfactie vanzelf terug,
+      // en werkt de werkstand dan op de normale, veilige manier bij.
       setSyncStatus("Opgeslagen " + new Date().toLocaleTimeString(), "synced");
     } catch (e) {
       console.error("Fout bij opslaan:", e);
@@ -686,9 +950,58 @@ function start() {
     }
   }
 
-  // Verwijdert items ouder dan 30 dagen definitief uit het archief.
-  // Geeft true terug als er echt iets is opgeruimd (zodat de aanroeper kan
-  // besluiten dit ook meteen op te slaan).
+  async function saveList() {
+    // "saveTimer" markeert dat er nog een wachtende opslag is (voor
+    // flushPendingSave, zie hierboven). Die moet ook leeggemaakt worden
+    // wanneer de 400ms-timer gewoon vanzelf afloopt (niet alleen bij een
+    // vroegtijdige flush) — anders blijft "er staat nog iets te wachten"
+    // voor altijd waar staan, en zou elke latere keer dat het tabblad
+    // verdwijnt (schermvergrendeling, van app wisselen) opnieuw een
+    // opslag afdwingen, óók als er niets meer te bewaren viel. Dat kan in
+    // het ergste geval zelfs verse, ondertussen van elders binnengekomen
+    // wijzigingen overschrijven met een oude, in-het-geheugen-verouderde
+    // kopie.
+    saveTimer = null;
+    const now = Date.now();
+    if (activePrive) {
+      const entry = priveLijsten.find((l) => l.id === activeId);
+      if (entry) {
+        entry.items = items;
+        entry.archivedItems = archivedItems;
+        entry.naam = listName;
+        entry.updatedAt = now;
+      }
+      savePrive();
+      laatstGezien[activeId] = now;
+      saveGezien();
+      setSyncStatus("Opgeslagen (alleen op dit toestel) " + new Date().toLocaleTimeString(), "synced");
+      renderTabsAndPanel();
+      return;
+    }
+
+    const entry = householdLijsten.find((l) => l.id === activeId);
+    if (entry) {
+      entry.items = items;
+      entry.archivedItems = archivedItems;
+      entry.naam = listName;
+      entry.updatedAt = now;
+    }
+    laatstGezien[activeId] = now;
+    saveGezien();
+    await saveHousehold();
+  }
+
+  // Verwijdert lijstjes-archiefitems ouder dan 30 dagen definitief.
+  function purgeExpiredLists() {
+    const cutoff = Date.now() - ARCHIVE_MS;
+    const before = householdArchivedLijsten.length;
+    householdArchivedLijsten = householdArchivedLijsten.filter((l) => l.deletedAt > cutoff);
+    const beforePrive = priveArchief.length;
+    priveArchief = priveArchief.filter((l) => l.deletedAt > cutoff);
+    if (priveArchief.length !== beforePrive) savePriveArchief();
+    return householdArchivedLijsten.length !== before;
+  }
+
   function purgeExpiredArchive() {
     const cutoff = Date.now() - ARCHIVE_MS;
     const before = archivedItems.length;
@@ -718,7 +1031,6 @@ function start() {
     if (li) {
       li.classList.add("removing");
       li.addEventListener("transitionend", () => archiveItem(id), { once: true });
-      // Vangnet voor als transitionend niet vuurt (bv. reduced-motion).
       setTimeout(() => {
         if (items.some((i) => i.id === id)) archiveItem(id);
       }, 300);
@@ -738,12 +1050,20 @@ function start() {
     scheduleSave();
   }
 
+  // Definitief weg, meteen — geen extra bevestiging nodig: het item is al
+  // 2x bewust verwijderd (eerst uit de lijst, nu ook nog uit het archief).
+  function permanentlyDeleteItem(id) {
+    const idx = archivedItems.findIndex((i) => i.id === id);
+    if (idx === -1) return;
+    archivedItems.splice(idx, 1);
+    renderArchive();
+    scheduleSave();
+  }
+
   function renderArchive() {
     if (!el.archiveList) return;
     el.archiveList.innerHTML = "";
     el.archiveEmptyHint.hidden = archivedItems.length > 0;
-    el.archiveCount.hidden = archivedItems.length === 0;
-    el.archiveCount.textContent = archivedItems.length;
 
     for (const item of archivedItems) {
       const li = document.createElement("li");
@@ -763,44 +1083,39 @@ function start() {
       restoreBtn.textContent = "Terugzetten";
       restoreBtn.addEventListener("click", () => restoreItem(item.id));
 
-      li.append(text, meta, restoreBtn);
+      const deleteForeverBtn = document.createElement("button");
+      deleteForeverBtn.type = "button";
+      deleteForeverBtn.className = "btn btn-ghost btn-small btn-delete-forever";
+      deleteForeverBtn.textContent = "Verwijder definitief";
+      deleteForeverBtn.addEventListener("click", () => permanentlyDeleteItem(item.id));
+
+      li.append(text, meta, restoreBtn, deleteForeverBtn);
       el.archiveList.appendChild(li);
     }
   }
 
-  // --- Hele lijst verwijderen (met dezelfde 30-dagen-vangnet als items) ---
+  // --- Dit lijstje verwijderen (met dezelfde 30-dagen-vangnet als items) ---
   function updateDeletedView() {
-    if (deletedAt) {
-      el.app.hidden = true;
-      el.archivePanel.hidden = true;
-      if (el.settingsPanel) el.settingsPanel.hidden = true;
-      el.deletedHint.hidden = false;
-
-      if (Date.now() - deletedAt > ARCHIVE_MS) {
-        el.deletedText.textContent = `"${listName}" is definitief verwijderd.`;
-        el.restoreListBtn.hidden = true;
-      } else {
-        const d = daysLeft(deletedAt);
-        el.deletedText.textContent = `"${listName}" is verwijderd. Nog ${d} dag${d === 1 ? "" : "en"} om 'm terug te zetten.`;
-        el.restoreListBtn.hidden = false;
-      }
-      return;
-    }
-
-    el.deletedHint.hidden = true;
-
     if (archiveOpen) {
       el.app.hidden = true;
       el.archivePanel.hidden = false;
       if (el.settingsPanel) el.settingsPanel.hidden = true;
+      if (el.listsPanel) el.listsPanel.hidden = true;
     } else if (settingsOpen) {
       el.app.hidden = true;
       el.archivePanel.hidden = true;
       if (el.settingsPanel) el.settingsPanel.hidden = false;
+      if (el.listsPanel) el.listsPanel.hidden = true;
+    } else if (listsOpen) {
+      el.app.hidden = true;
+      el.archivePanel.hidden = true;
+      if (el.settingsPanel) el.settingsPanel.hidden = true;
+      if (el.listsPanel) el.listsPanel.hidden = false;
     } else {
       el.app.hidden = false;
       el.archivePanel.hidden = true;
       if (el.settingsPanel) el.settingsPanel.hidden = true;
+      if (el.listsPanel) el.listsPanel.hidden = true;
     }
   }
 
@@ -808,6 +1123,7 @@ function start() {
     el.archiveBtn.addEventListener("click", () => {
       archiveOpen = true;
       settingsOpen = false;
+      listsOpen = false;
       renderArchive();
       updateDeletedView();
     });
@@ -824,6 +1140,7 @@ function start() {
     el.settingsBtn.addEventListener("click", () => {
       settingsOpen = true;
       archiveOpen = false;
+      listsOpen = false;
       updateNameBtn();
       updateDeletedView();
     });
@@ -836,32 +1153,87 @@ function start() {
     });
   }
 
-  if (el.deleteListBtn) {
-    el.deleteListBtn.addEventListener("click", async () => {
-      const typed = prompt(
-        `Hiermee verwijder je "${listName}" voor iedereen die de link/code heeft. Je hebt daarna nog ${ARCHIVE_DAYS} dagen om 'm terug te zetten — daarna is de lijst echt weg.\n\nTyp VERWIJDER om te bevestigen:`
-      );
-      if (typed !== "VERWIJDER") return;
-      deletedAt = Date.now();
-      archiveOpen = false;
+  if (el.listsCloseBtn) {
+    el.listsCloseBtn.addEventListener("click", () => {
+      listsOpen = false;
       updateDeletedView();
-      await saveList();
     });
   }
 
-  if (el.restoreListBtn) {
-    el.restoreListBtn.addEventListener("click", async () => {
-      deletedAt = null;
-      updateDeletedView();
-      await saveList();
+  if (el.listsAddBtn) {
+    el.listsAddBtn.addEventListener("click", () => addList(false));
+  }
+
+  if (el.deleteListBtn) {
+    el.deleteListBtn.addEventListener("click", async () => {
+      const typed = prompt(
+        `Hiermee verwijder je "${listName}" ${activePrive ? "van dit toestel" : "voor iedereen die de code heeft"}. Je hebt daarna nog ${ARCHIVE_DAYS} dagen om 'm terug te zetten — daarna is het lijstje echt weg.\n\nTyp VERWIJDER om te bevestigen:`
+      );
+      if (typed !== "VERWIJDER") return;
+
+      const deletedEntry = { id: activeId, naam: listName, items, archivedItems, updatedAt: Date.now(), deletedAt: Date.now() };
+      removeFromVolgorde(activeId);
+      delete laatstGezien[activeId];
+      saveGezien();
+
+      if (activePrive) {
+        priveLijsten = priveLijsten.filter((l) => l.id !== activeId);
+        priveArchief.push(deletedEntry);
+        savePrive();
+        savePriveArchief();
+        renderTabsAndPanel();
+      } else {
+        householdLijsten = householdLijsten.filter((l) => l.id !== activeId);
+        householdArchivedLijsten.push(deletedEntry);
+        // Altijd meteen opslaan, óók als we hierna naar een ander lijstje
+        // schakelen — anders herlaadt de pagina vóórdat deze verwijdering
+        // ooit is opgeslagen, en lijkt het lijstje niet verwijderd.
+        await saveHousehold();
+      }
+
+      archiveOpen = false;
+      const rest = getAllLists().filter((x) => x.id !== activeId);
+      if (rest.length > 0) {
+        await switchToList(rest[0].id);
+      } else if (activePrive) {
+        addList(true);
+      }
     });
+  }
+
+  // Een verwijderd lijstje (nog binnen de 30 dagen) terugzetten — vanuit
+  // het ☰-lijstjespaneel, net als "Terugzetten" bij losse items.
+  async function restoreList(id, prive) {
+    if (prive) {
+      const idx = priveArchief.findIndex((l) => l.id === id);
+      if (idx === -1) return;
+      const [l] = priveArchief.splice(idx, 1);
+      delete l.deletedAt;
+      priveLijsten.push(l);
+      savePrive();
+      savePriveArchief();
+    } else {
+      const idx = householdArchivedLijsten.findIndex((l) => l.id === id);
+      if (idx === -1) return;
+      const [l] = householdArchivedLijsten.splice(idx, 1);
+      delete l.deletedAt;
+      // Het tijdstip van terugzetten bijwerken: bij het opslaan bepaalt dít
+      // tijdstip (niet het oude, van vóór de verwijdering) dat dit lijstje
+      // nu weer actief is — anders zou het opslaan kunnen denken dat de
+      // (oudere) verwijdering nog steeds het laatste is wat ermee gebeurd
+      // is, en de teruggezette lijst per ongeluk weer laten verdwijnen.
+      l.updatedAt = Date.now();
+      householdLijsten.push(l);
+    }
+    ensureInVolgorde(id, { pinned: false });
+    renderTabsAndPanel();
+    if (prive) return;
+    await saveHousehold();
   }
 
   // Geeft de volgorde-index terug van elk actief (niet-afgevinkt) item
   // binnen de onderliggende `items`-array, gescheiden per groep (vastgepind
-  // of niet) — dat is de volgorde waarin de pijltjes-omhoog/omlaag bewegen.
-  // Een vastgepind item kan zo nooit per ongeluk via de pijltjes tussen de
-  // gewone items belanden (dat kan alleen via de 📌-knop).
+  // of niet).
   function activeIndexOrder(pinned) {
     const order = [];
     items.forEach((it, i) => {
@@ -877,7 +1249,7 @@ function start() {
     const pos = order.indexOf(myIndex);
     if (pos === -1) return;
     const swapWithPos = pos + direction;
-    if (swapWithPos < 0 || swapWithPos >= order.length) return; // al helemaal boven-/onderaan
+    if (swapWithPos < 0 || swapWithPos >= order.length) return;
     const otherIndex = order[swapWithPos];
     [items[myIndex], items[otherIndex]] = [items[otherIndex], items[myIndex]];
     render();
@@ -979,8 +1351,6 @@ function start() {
 
     li.append(row);
 
-    // Wie het item heeft toegevoegd (of, als het klaar is, wie het heeft
-    // afgevinkt) — alleen als diegene een naam heeft ingevuld.
     const attributionText = item.done
       ? item.doneBy && `Afgevinkt door ${item.doneBy}`
       : item.createdBy && `Toegevoegd door ${item.createdBy}`;
@@ -991,8 +1361,6 @@ function start() {
       li.append(meta);
     }
 
-    // "Ligt hier al lang"-regeltje: alleen voor nog-niet-afgevinkte items
-    // die al langer dan de drempel op de lijst staan, en niet gedempt zijn.
     if (!item.done && !item.staleMuted && item.createdAt && Date.now() - item.createdAt > ARCHIVE_MS) {
       const stale = document.createElement("div");
       stale.className = "item-stale";
@@ -1070,6 +1438,163 @@ function start() {
     knownIds = new Set(items.map((i) => i.id));
   }
 
+  // ============================================================
+  // Tabbladen (alleen vastgepinde lijstjes) + het "Lijstjes"-paneel (alle
+  // lijstjes, met pin/volgorde/schakelen).
+  // ============================================================
+  function renderTabsAndPanel() {
+    renderTabs();
+    renderListsPanel();
+  }
+
+  function labelFor(l) {
+    return (l.prive ? "🔒 " : "") + (l.naam || "Lijst") + (heeftIetsNieuws(l) ? " •" : "");
+  }
+
+  function renderTabs() {
+    if (!el.listTabs) return;
+    el.listTabs.innerHTML = "";
+    el.listTabs.hidden = false;
+
+    const pinnedIds = volgorde.filter((v) => v.pinned).map((v) => v.id);
+    for (const id of pinnedIds) {
+      const l = findList(id);
+      if (!l) continue;
+      const tab = document.createElement("button");
+      tab.type = "button";
+      tab.className = "list-tab" + (id === activeId ? " active" : "");
+      tab.title = l.naam || "Lijst";
+      tab.dataset.id = id;
+
+      const label = document.createElement("span");
+      label.className = "list-tab-label";
+      label.textContent = labelFor(l);
+      tab.appendChild(label);
+
+      tab.addEventListener("click", () => {
+        if (id !== activeId) switchToList(id);
+      });
+
+      el.listTabs.appendChild(tab);
+    }
+
+    const listsBtnTab = document.createElement("button");
+    listsBtnTab.type = "button";
+    listsBtnTab.id = "lists-btn";
+    listsBtnTab.className = "list-tab list-tab-add";
+    listsBtnTab.textContent = "☰";
+    listsBtnTab.title = "Al je lijstjes";
+    listsBtnTab.addEventListener("click", () => {
+      listsOpen = true;
+      archiveOpen = false;
+      settingsOpen = false;
+      renderTabsAndPanel();
+      updateDeletedView();
+    });
+    el.listTabs.appendChild(listsBtnTab);
+  }
+
+  function renderListsPanel() {
+    if (!el.listsPanelList) return;
+    el.listsPanelList.innerHTML = "";
+
+    const pinnedIds = volgordeIndexOrder(true).map((i) => volgorde[i].id);
+    const unpinnedIds = volgordeIndexOrder(false).map((i) => volgorde[i].id);
+    const orderedIds = [...pinnedIds, ...unpinnedIds];
+
+    orderedIds.forEach((id) => {
+      const l = findList(id);
+      if (!l) return;
+      const entryIndex = volgorde.findIndex((v) => v.id === id);
+      const pinned = volgorde[entryIndex].pinned;
+      const group = pinned ? pinnedIds : unpinnedIds;
+      const posInGroup = group.indexOf(id);
+
+      const li = document.createElement("li");
+      li.className = "lists-panel-row" + (id === activeId ? " active" : "");
+
+      const switchBtn = document.createElement("button");
+      switchBtn.type = "button";
+      switchBtn.className = "lists-panel-name";
+      switchBtn.textContent = labelFor(l);
+      switchBtn.addEventListener("click", () => {
+        if (id !== activeId) switchToList(id);
+      });
+
+      const moveWrap = document.createElement("span");
+      moveWrap.className = "move-buttons";
+      const upBtn = document.createElement("button");
+      upBtn.type = "button";
+      upBtn.className = "move-btn";
+      upBtn.textContent = "↑";
+      upBtn.disabled = posInGroup <= 0;
+      upBtn.setAttribute("aria-label", `${l.naam} naar boven verplaatsen`);
+      upBtn.addEventListener("click", () => moveList(id, -1));
+      const downBtn = document.createElement("button");
+      downBtn.type = "button";
+      downBtn.className = "move-btn";
+      downBtn.textContent = "↓";
+      downBtn.disabled = posInGroup === -1 || posInGroup >= group.length - 1;
+      downBtn.setAttribute("aria-label", `${l.naam} naar beneden verplaatsen`);
+      downBtn.addEventListener("click", () => moveList(id, 1));
+      moveWrap.append(upBtn, downBtn);
+
+      const pinBtn = document.createElement("button");
+      pinBtn.type = "button";
+      pinBtn.className = "pin-btn" + (pinned ? " active" : "");
+      pinBtn.textContent = "📌";
+      pinBtn.title = pinned ? "Niet meer als tabblad tonen" : "Als tabblad vastzetten";
+      pinBtn.setAttribute("aria-label", `${pinned ? "Losmaken" : "Vastzetten"} van ${l.naam}`);
+      pinBtn.addEventListener("click", () => togglePin(id));
+
+      li.append(switchBtn, moveWrap, pinBtn);
+
+      if (!l.prive) {
+        const hideBtn = document.createElement("button");
+        hideBtn.type = "button";
+        hideBtn.className = "btn-icon lists-panel-hide";
+        hideBtn.textContent = "✕";
+        hideBtn.title = "Dit lijstje hier niet meer tonen";
+        hideBtn.setAttribute("aria-label", `${l.naam} verbergen op dit toestel`);
+        hideBtn.addEventListener("click", () => hideList(id));
+        li.append(hideBtn);
+      }
+
+      el.listsPanelList.appendChild(li);
+    });
+
+    if (el.listsPanelArchived) {
+      el.listsPanelArchived.innerHTML = "";
+      const archived = [
+        ...householdArchivedLijsten.map((l) => ({ ...l, prive: false })),
+        ...priveArchief.map((l) => ({ ...l, prive: true })),
+      ];
+      if (el.listsPanelArchivedSection) el.listsPanelArchivedSection.hidden = archived.length === 0;
+      archived.forEach((l) => {
+        const li = document.createElement("li");
+        li.className = "lists-panel-row";
+
+        const name = document.createElement("span");
+        name.className = "lists-panel-name";
+        name.textContent = (l.prive ? "🔒 " : "") + (l.naam || "Lijst");
+
+        const meta = document.createElement("span");
+        meta.className = "archive-meta";
+        const d = daysLeft(l.deletedAt);
+        meta.textContent = `vervalt over ${d} dag${d === 1 ? "" : "en"}`;
+
+        const restoreBtn = document.createElement("button");
+        restoreBtn.type = "button";
+        restoreBtn.className = "btn btn-ghost btn-small";
+        restoreBtn.textContent = "Terugzetten";
+        restoreBtn.addEventListener("click", () => restoreList(l.id, l.prive));
+
+        li.append(name, meta, restoreBtn);
+        el.listsPanelArchived.appendChild(li);
+      });
+    }
+  }
+
   el.addForm.addEventListener("submit", (e) => {
     e.preventDefault();
     const text = el.newItem.value.trim();
@@ -1083,6 +1608,10 @@ function start() {
   });
 
   el.shareBtn.addEventListener("click", async () => {
+    if (activePrive) {
+      alert("Dit is een privé lijstje — die kun je niet delen. Maak 'm gedeeld via het ☰-lijstjespaneel als je 'm alsnog wilt delen.");
+      return;
+    }
     const url = location.href;
     if (navigator.share) {
       try {
