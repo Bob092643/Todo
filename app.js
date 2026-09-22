@@ -16,6 +16,12 @@ import {
 const CHECK_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
 
+// Klokje voor de "bezig"-knop bij een item — los van het gewone vinkje
+// (open/afgevinkt): een extra, apart te zetten seintje dat iemand hiermee
+// bezig is, zonder dat het item daarmee al klaar is.
+const CLOCK_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l3 2"></path></svg>';
+
 // --- DOM references ---
 const el = {
   app: document.getElementById("app"),
@@ -161,7 +167,21 @@ if (el.colorBtn && el.colorPicker) {
 
 if (el.colorResetBtn) {
   el.colorResetBtn.addEventListener("click", () => {
-    applyAccentColor(DEFAULT_COLOR);
+    // Niet applyAccentColor(DEFAULT_COLOR) gebruiken: dat berekent de 3
+    // afgeleide tinten opnieuw met dezelfde HSL-formule als voor een door
+    // de gebruiker gekozen kleur, en dat gaf een iets andere (merkbaar
+    // hardere) tint dan de eigenlijke standaardkleuren hieronder in
+    // style.css — je zag dus meteen een andere kleur, ook al had je "de
+    // standaard" al. In plaats daarvan gewoon de eigen kleur-overrides
+    // weghalen: dan valt de pagina vanzelf terug op de originele waardes
+    // uit style.css (en ook automatisch op de donkere-modus-varianten
+    // daarvan, als dat van toepassing is) — precies dezelfde kleur die je
+    // ook na herladen zou zien.
+    const root = document.documentElement.style;
+    root.removeProperty("--blue-600");
+    root.removeProperty("--blue-700");
+    root.removeProperty("--blue-500");
+    root.removeProperty("--blue-50");
     if (el.colorPicker) el.colorPicker.value = DEFAULT_COLOR;
     try {
       localStorage.removeItem(COLOR_STORAGE_KEY);
@@ -1388,6 +1408,11 @@ function start() {
       item.done = checkbox.checked;
       if (item.done) {
         if (myName) item.doneBy = myName;
+        // Afgevinkt = klaar: een eventueel "bezig"-seintje is dan niet meer
+        // relevant, dus dat gaat er meteen af.
+        delete item.bezig;
+        delete item.bezigNotitie;
+        delete item.bezigDoor;
       } else {
         delete item.doneBy;
       }
@@ -1414,6 +1439,37 @@ function start() {
     text.textContent = item.text;
 
     row.append(check, text);
+
+    // "Bezig"-knop: los van het vinkje hierboven (dat blijft gewoon
+    // open/afgevinkt) — een extra seintje dat iemand hier al mee bezig is,
+    // met optioneel een kort notitietje. Niet nodig meer zodra het item al
+    // is afgevinkt (zie CSS: verdwijnt dan vanzelf).
+    const bezigBtn = document.createElement("button");
+    bezigBtn.type = "button";
+    bezigBtn.className = "bezig-btn" + (item.bezig ? " active" : "");
+    bezigBtn.innerHTML = CLOCK_ICON;
+    bezigBtn.title = item.bezig ? "Niet meer 'bezig'" : "Op 'bezig' zetten";
+    bezigBtn.setAttribute(
+      "aria-label",
+      `${item.text} ${item.bezig ? "niet meer op 'bezig' zetten" : "op 'bezig' zetten"}`
+    );
+    bezigBtn.addEventListener("click", () => {
+      if (item.bezig) {
+        delete item.bezig;
+        delete item.bezigNotitie;
+        delete item.bezigDoor;
+      } else {
+        const notitie = prompt(`Kort notitie bij "${item.text}" (mag leeg blijven):`, "");
+        if (notitie === null) return; // geannuleerd: niks aanpassen
+        item.bezig = true;
+        item.bezigNotitie = notitie.trim() || null;
+        if (myName) item.bezigDoor = myName;
+        else delete item.bezigDoor;
+      }
+      render();
+      scheduleSave();
+    });
+    row.append(bezigBtn);
 
     if (showMoveButtons) {
       const moveWrap = document.createElement("span");
@@ -1461,6 +1517,23 @@ function start() {
     row.append(del);
 
     li.append(row);
+
+    // Regeltje bij "bezig": notitie + naam als er allebei zijn, anders wat
+    // er wél is (alleen de naam, of alleen de notitie als er (nog) geen
+    // naam is ingesteld) — nooit een tijdstip, dat voegt hier niks toe.
+    if (item.bezig) {
+      const bezigTekst = item.bezigNotitie
+        ? item.bezigDoor
+          ? `${item.bezigDoor}: ${item.bezigNotitie}`
+          : item.bezigNotitie
+        : item.bezigDoor || null;
+      if (bezigTekst) {
+        const log = document.createElement("div");
+        log.className = "item-bezig-log";
+        log.textContent = bezigTekst;
+        li.append(log);
+      }
+    }
 
     const attributionText = item.done
       ? item.doneBy && `Afgevinkt door ${item.doneBy}`
