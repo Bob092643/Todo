@@ -42,6 +42,8 @@ const el = {
   listsPanelList: document.getElementById("lists-panel-list"),
   listsPanelArchivedSection: document.getElementById("lists-panel-archived-section"),
   listsPanelArchived: document.getElementById("lists-panel-archived"),
+  listsPanelHiddenSection: document.getElementById("lists-panel-hidden-section"),
+  listsPanelHidden: document.getElementById("lists-panel-hidden"),
   listsAddBtn: document.getElementById("lists-add-btn"),
   archiveBtn: document.getElementById("archive-btn"),
   archivePanel: document.getElementById("archive-panel"),
@@ -317,6 +319,7 @@ function start() {
   const PRIVE_KEY = "boodschappenlijst:prive-lijsten";
   const PRIVE_ARCHIEF_KEY = "boodschappenlijst:prive-archief";
   const VOLGORDE_KEY = "boodschappenlijst:lijst-volgorde";
+  const VERBORGEN_KEY = "boodschappenlijst:lijst-verborgen";
   const GEZIEN_KEY = "boodschappenlijst:laatst-gezien";
   const ACTIVE_KEY = "boodschappenlijst:actieve-lijst";
   const TABS_GEMIGREERD_KEY = "boodschappenlijst:tabs-gemigreerd";
@@ -354,11 +357,18 @@ function start() {
   let volgorde = loadJSON(VOLGORDE_KEY, []).map((v) => (typeof v === "string" ? v : v.id));
   const TABS_COUNT = 3;
   let laatstGezien = loadJSON(GEZIEN_KEY, {});
+  // Gedeelde lijstjes die je op dit toestel bewust "verborgen" hebt (via het
+  // ✕-knopje in het ☰-paneel) — ze bestaan nog gewoon (voor iedereen met de
+  // code), maar mogen niet automatisch weer in `volgorde` terugkomen zolang
+  // ze hier staan. Zie ook de "Verborgen op dit toestel"-lijst in het
+  // ☰-paneel, waar je zo'n lijstje weer kunt terugzetten.
+  let verborgenLijsten = loadJSON(VERBORGEN_KEY, []);
 
   function savePrive() { saveJSON(PRIVE_KEY, priveLijsten); }
   function savePriveArchief() { saveJSON(PRIVE_ARCHIEF_KEY, priveArchief); }
   function saveVolgorde() { saveJSON(VOLGORDE_KEY, volgorde); }
   function saveGezien() { saveJSON(GEZIEN_KEY, laatstGezien); }
+  function saveVerborgen() { saveJSON(VERBORGEN_KEY, verborgenLijsten); }
 
   function saveActive(id) {
     try {
@@ -542,12 +552,16 @@ function start() {
     if (!l || l.prive) return;
     if (
       !confirm(
-        `"${l.naam || "Lijst"}" hier niet meer laten zien op dit toestel?\n\nHet lijstje zelf blijft gewoon bestaan — jij (met de code) en anderen kunnen er nog steeds bij.`
+        `"${l.naam || "Lijst"}" hier niet meer laten zien op dit toestel?\n\nHet lijstje zelf blijft gewoon bestaan — jij (met de code) en anderen kunnen er nog steeds bij. Terugzetten kan later via ☰ Lijstjes, onderaan bij "Verborgen op dit toestel".`
       )
     ) {
       return;
     }
     removeFromVolgorde(id);
+    if (!verborgenLijsten.includes(id)) {
+      verborgenLijsten.push(id);
+      saveVerborgen();
+    }
     delete laatstGezien[id];
     saveGezien();
     if (id === activeId) {
@@ -560,6 +574,14 @@ function start() {
     } else {
       renderTabsAndPanel();
     }
+  }
+
+  // Een eerder verborgen lijstje weer laten zien op dit toestel.
+  function unhideList(id) {
+    verborgenLijsten = verborgenLijsten.filter((v) => v !== id);
+    saveVerborgen();
+    ensureInVolgorde(id);
+    renderTabsAndPanel();
   }
 
   function addList(gedwongenNieuw) {
@@ -765,7 +787,13 @@ function start() {
       // tabblad, want dat rendert uitsluitend op basis van `volgorde`.
       // Alleen `resolveActiveList()` aanroepen dekte enkel het op dit
       // toestel actieve lijstje, niet de rest.
-      householdLijsten.forEach((l) => ensureInVolgorde(l.id));
+      // Behalve: een lijstje dat je hier bewust verborgen hebt mag NIET
+      // door deze automatische aanvulling meteen weer terugkomen — anders
+      // zou "verbergen" bij elke volgende sync (dus ook gewoon bij een
+      // herlaad van de pagina) vanzelf ongedaan gemaakt worden.
+      householdLijsten.forEach((l) => {
+        if (!verborgenLijsten.includes(l.id)) ensureInVolgorde(l.id);
+      });
 
       resolveActiveList();
 
@@ -801,6 +829,14 @@ function start() {
     archivedItems = target.archivedItems || [];
     setListName(target.naam);
     updateLockIcon();
+    // Actief geworden (bijv. omdat het de enige overgebleven lijst is, of
+    // via een link met "actief=" erin) betekent: niet meer "verborgen" —
+    // anders zou 'm nu wél zien als actieve lijst, maar 'm tegelijk ook nog
+    // in "Verborgen op dit toestel" tegenkomen.
+    if (verborgenLijsten.includes(activeId)) {
+      verborgenLijsten = verborgenLijsten.filter((v) => v !== activeId);
+      saveVerborgen();
+    }
     ensureInVolgorde(activeId);
     saveActive(activeId);
 
@@ -918,7 +954,17 @@ function start() {
       if (steen && steen.deletedForeverAt >= tijd) return; // definitief weg, niet laten herleven
       (archief ? archivedLijsten : lijsten).push(lijst);
     });
-    return { lijsten, archivedLijsten, tombstones: Array.from(tombstones.values()) };
+
+    // Grafstenen ouder dan 30 dagen hier ook echt uit de UITKOMST filteren
+    // (niet alleen uit de lokale kopie, zie purgeExpiredLists) — anders
+    // levert het samenvoegen van server+lokaal een oude, server-kant
+    // grafsteen steeds weer opnieuw op, ook nadat purgeExpiredLists 'm
+    // lokaal al had opgeruimd: bij elke save zou die dan gewoon weer
+    // worden teruggeschreven, en groeit de lijst nooit echt in.
+    const tombstoneCutoff = Date.now() - ARCHIVE_MS;
+    const geldigeTombstones = Array.from(tombstones.values()).filter((t) => t.deletedForeverAt > tombstoneCutoff);
+
+    return { lijsten, archivedLijsten, tombstones: geldigeTombstones };
   }
 
   // Meerdere plekken in de app kunnen (bijna) tegelijk saveHousehold()
@@ -1009,9 +1055,13 @@ function start() {
   }
 
   // Verwijdert lijstjes-archiefitems ouder dan 30 dagen definitief.
+  // Geeft true terug als er in het GEDEELDE gezinnetje iets veranderde
+  // (archief-lijst of grafstenen) — dat moet dan ook echt opgeslagen
+  // worden, anders staat het bij de volgende snapshot van de server weer
+  // gewoon terug.
   function purgeExpiredLists() {
     const cutoff = Date.now() - ARCHIVE_MS;
-    const before = householdArchivedLijsten.length;
+    const beforeLijsten = householdArchivedLijsten.length;
     householdArchivedLijsten = householdArchivedLijsten.filter((l) => l.deletedAt > cutoff);
     const beforePrive = priveArchief.length;
     priveArchief = priveArchief.filter((l) => l.deletedAt > cutoff);
@@ -1020,8 +1070,9 @@ function start() {
     // "gevaarlijke" oude archiefkopie toch al overal vanzelf opgeruimd
     // (zie hierboven), dus is de grafsteen niet meer nodig om herleven te
     // voorkomen — zo blijft die lijst niet eindeloos doorgroeien.
+    const beforeTombstones = (householdTombstones || []).length;
     householdTombstones = (householdTombstones || []).filter((t) => t.deletedForeverAt > cutoff);
-    return householdArchivedLijsten.length !== before;
+    return householdArchivedLijsten.length !== beforeLijsten || householdTombstones.length !== beforeTombstones;
   }
 
   function purgeExpiredArchive() {
@@ -1217,14 +1268,19 @@ function start() {
       const rest = getAllLists().filter((x) => x.id !== activeId);
       if (rest.length > 0) {
         await switchToList(rest[0].id);
-      } else {
-        // Was dit echt het allerlaatste lijstje (gedeeld of privé) van dit
-        // toestel? Dan moet er meteen een nieuwe voor terugkomen — anders
-        // blijft het scherm leeg staan (er is dan niets meer om naar toe te
-        // schakelen, en updateDeletedView() zou anders nooit meer aangeroepen
-        // worden om het hoofdscherm weer te tonen).
+      } else if (activePrive) {
+        // Een privé lijstje verwijderen raakt de server niet (geen
+        // saveHousehold-rondje, dus ook geen onSnapshot-echo die straks
+        // vanzelf een vervangend lijstje aanmaakt) — dus moet dat hier
+        // expliciet, anders blijft het scherm leeg staan.
         addList(true);
       }
+      // Was dit echt het allerlaatste GEDEELDE lijstje? Dan hoeft hier
+      // niets extra's te gebeuren: saveHousehold() hierboven triggert de
+      // eigen onSnapshot-echo, en resolveActiveList() maakt daar (via
+      // z'n eigen "geen enkel lijstje meer over"-vangnet) vanzelf een
+      // nieuw leeg lijstje van — dat nog een keer hier doen zou een 2e,
+      // overbodig lijstje kunnen opleveren als die twee elkaar kruisen.
     });
   }
 
@@ -1251,6 +1307,10 @@ function start() {
       // is, en de teruggezette lijst per ongeluk weer laten verdwijnen.
       l.updatedAt = Date.now();
       householdLijsten.push(l);
+    }
+    if (verborgenLijsten.includes(id)) {
+      verborgenLijsten = verborgenLijsten.filter((v) => v !== id);
+      saveVerborgen();
     }
     ensureInVolgorde(id);
     renderTabsAndPanel();
@@ -1614,9 +1674,9 @@ function start() {
       if (!l.prive) {
         const hideBtn = document.createElement("button");
         hideBtn.type = "button";
-        hideBtn.className = "btn-icon lists-panel-hide";
-        hideBtn.textContent = "✕";
-        hideBtn.title = "Dit lijstje hier niet meer tonen";
+        hideBtn.className = "btn btn-ghost btn-small lists-panel-hide";
+        hideBtn.textContent = "Verbergen";
+        hideBtn.title = "Dit lijstje hier niet meer tonen (blijft gewoon bestaan)";
         hideBtn.setAttribute("aria-label", `${l.naam} verbergen op dit toestel`);
         hideBtn.addEventListener("click", () => hideList(id));
         li.append(hideBtn);
@@ -1659,6 +1719,37 @@ function start() {
 
         li.append(name, meta, restoreBtn, deleteForeverBtn);
         el.listsPanelArchived.appendChild(li);
+      });
+    }
+
+    if (el.listsPanelHidden) {
+      el.listsPanelHidden.innerHTML = "";
+      // Een verborgen lijstje dat inmiddels (door iemand anders) verwijderd
+      // of niet meer vindbaar is, ruimen we hier meteen lokaal op — anders
+      // zou het voor altijd als "verborgen" blijven meetellen.
+      const geldig = verborgenLijsten.filter((id) => findList(id));
+      if (geldig.length !== verborgenLijsten.length) {
+        verborgenLijsten = geldig;
+        saveVerborgen();
+      }
+      if (el.listsPanelHiddenSection) el.listsPanelHiddenSection.hidden = geldig.length === 0;
+      geldig.forEach((id) => {
+        const l = findList(id);
+        const li = document.createElement("li");
+        li.className = "lists-panel-row";
+
+        const name = document.createElement("span");
+        name.className = "lists-panel-name";
+        name.textContent = l.naam || "Lijst";
+
+        const showBtn = document.createElement("button");
+        showBtn.type = "button";
+        showBtn.className = "btn btn-ghost btn-small";
+        showBtn.textContent = "Terug laten zien";
+        showBtn.addEventListener("click", () => unhideList(id));
+
+        li.append(name, showBtn);
+        el.listsPanelHidden.appendChild(li);
       });
     }
   }
