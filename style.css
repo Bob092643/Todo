@@ -659,6 +659,68 @@ main {
   border-color: var(--blue-500);
 }
 
+/* "Bezig"-knop bij een item — los van het vinkje (open/afgevinkt): een
+   extra seintje dat iemand hier al mee bezig is. */
+.bezig-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  padding: 9px 9px;
+  border-radius: 8px;
+  color: var(--muted);
+  filter: grayscale(1);
+  opacity: 0.55;
+  transition: opacity 0.15s ease, background 0.15s ease, filter 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.bezig-btn svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+.bezig-btn:hover {
+  opacity: 0.85;
+  background: var(--blue-50);
+}
+
+.bezig-btn.active {
+  filter: none;
+  opacity: 1;
+  color: #a67312;
+  background: rgba(229, 169, 42, 0.14);
+  border-color: var(--warning);
+}
+
+@media (prefers-color-scheme: dark) {
+  .bezig-btn.active {
+    color: var(--warning);
+  }
+}
+
+/* Zodra een item is afgevinkt is "bezig" niet meer relevant (de knop
+   verwijdert de status ook al meteen zelf, dit is puur de weergave). */
+.list li.done .bezig-btn {
+  display: none;
+}
+
+.item-bezig-log {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(229, 169, 42, 0.12);
+  color: #a67312;
+  font-size: 0.78rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .item-bezig-log {
+    background: rgba(229, 169, 42, 0.16);
+    color: var(--warning);
+  }
+}
+
 .delete-btn {
   /* Extra ruimte tot het pin-knopje ernaast — dat scheelt bij per ongeluk
      de verkeerde (destructieve!) knop raken op een klein scherm. */
