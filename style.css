@@ -337,11 +337,6 @@ h1, .brand {
 
 .lists-panel-hide {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  border-color: var(--border);
-  background: var(--bg);
-  color: var(--muted);
 }
 
 /* Informatief label ("tabblad"), geen knop: laat zien of dit lijstje bij
