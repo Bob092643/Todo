@@ -259,8 +259,23 @@ h1, .brand {
 
 .archive-panel .list li {
   flex-direction: row;
+  /* Mag om te wisselen naar een 2e regel: op een smal schermpje passen de
+     tekst van het item, "vervalt over X dagen" én de twee knoppen
+     ("Terugzetten"/"Verwijder definitief") gewoonweg niet allemaal op 1
+     regel. Zonder deze wrap kreeg de tekst (die als enige flex-kind kon
+     "meegeven") dan geen ruimte meer over en werd hij tot 0px breed in
+     elkaar gedrukt — met de tekst letter voor letter onder elkaar tot
+     gevolg. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
+}
+
+.archive-panel .list li .item-text {
+  /* Altijd een eigen volledige regel innemen (en dus nooit hoeven te
+     concurreren met de knoppen ernaast om de resterende breedte). */
+  flex-basis: 100%;
+  min-width: 0;
 }
 
 .archive-meta {
@@ -764,6 +779,13 @@ main {
 
 .item-text {
   flex: 1;
+  /* Zonder dit blijft een flex-kind in de breedte "vasthouden" aan zijn
+     langste woord, ook als er domweg geen ruimte voor is — in het archief
+     (met de bredere knoppen "Terugzetten"/"Verwijder definitief" ernaast
+     op een smal schermpje) leidde dat ertoe dat de tekst tot bijna 0px
+     breedte in elkaar gedrukt werd en daardoor letter voor letter onder
+     elkaar kwam te staan in plaats van gewoon netjes af te breken. */
+  min-width: 0;
   word-break: break-word;
   transition: color 0.15s ease;
 }
