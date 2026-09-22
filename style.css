@@ -211,10 +211,27 @@ h1, .brand {
 }
 
 .archive-panel {
+  /* Zelfde reden als bij <main>: zonder dit vult dit paneel niet de
+     resterende hoogte, en komt de onderste statusbalk (Gesynchroniseerd...
+     + code) meteen na het laatste lijstje/item te staan — halverwege het
+     scherm — in plaats van onderaan. */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   max-width: 480px;
   width: 100%;
   margin: 16px auto 0;
-  padding: 0 16px;
+  padding: 0 16px 32px;
+}
+
+/* Eigen "display: flex" hierboven wint anders van de standaard
+   [hidden]-regel van de browser (die alleen "display: none" is) — net als
+   bij .toast hieronder — waardoor een verborgen paneel (bijv.
+   #settings-panel terwijl het ☰-paneel open staat) toch nog steeds
+   meerekent voor de lay-out en zichtbaar zou blijven, met de statusbalk
+   er ver onder geduwd in plaats van pal onderaan. */
+.archive-panel[hidden] {
+  display: none;
 }
 
 .archive-panel-header {
@@ -325,6 +342,23 @@ h1, .brand {
   border-color: var(--border);
   background: var(--bg);
   color: var(--muted);
+}
+
+/* Informatief label ("tabblad"), geen knop: laat zien of dit lijstje bij
+   de eerste 3 (dus als tabblad bovenin zichtbaar) hoort. Leeg (en dus
+   onzichtbaar, op de ruimte na) als dat niet zo is. */
+.lists-panel-tab-badge {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.lists-panel-tab-badge.active {
+  background: var(--blue-50);
+  color: var(--blue-600);
 }
 
 .settings-section {
