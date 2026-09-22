@@ -347,10 +347,12 @@ function start() {
 
   let priveLijsten = loadJSON(PRIVE_KEY, []);
   let priveArchief = loadJSON(PRIVE_ARCHIEF_KEY, []);
-  // volgorde: array van { id, pinned } — bepaalt tabblad-zichtbaarheid én
-  // onderlinge volgorde, hetzelfde patroon als vastpinnen/verschuiven bij
-  // losse boodschappen (zie activeIndexOrder/moveItem verderop).
-  let volgorde = loadJSON(VOLGORDE_KEY, []);
+  // volgorde: array van lijst-id's, in jouw eigen volgorde voor dit
+  // toestel. De eerste TABS_COUNT staan als tabblad bovenin; de rest vind
+  // je terug in het ☰-paneel. Geen apart "vastpinnen" meer — de volgorde
+  // zelf bepaalt alles (zie renderTabs/renderListsPanel verderop).
+  let volgorde = loadJSON(VOLGORDE_KEY, []).map((v) => (typeof v === "string" ? v : v.id));
+  const TABS_COUNT = 3;
   let laatstGezien = loadJSON(GEZIEN_KEY, {});
 
   function savePrive() { saveJSON(PRIVE_KEY, priveLijsten); }
@@ -366,18 +368,19 @@ function start() {
     }
   }
 
-  // Zorgt dat een lijst-id in de lokale volgorde-lijst staat. Gloednieuwe
-  // lijstjes komen standaard NIET vastgepind binnen (behalve de eerste
-  // ooit, dan moet er wel meteen een zichtbaar tabblad zijn).
-  function ensureInVolgorde(id, { pinned } = {}) {
-    if (volgorde.some((v) => v.id === id)) return;
-    const defaultPinned = volgorde.length === 0;
-    volgorde.push({ id, pinned: pinned !== undefined ? pinned : defaultPinned });
+  // Zorgt dat een lijst-id in de lokale volgorde-lijst staat. Komt
+  // standaard achteraan (dus pas een tabblad zodra 'ie, door zelf te
+  // verschuiven of doordat er lijstjes vóór 'm wegvallen, in de eerste
+  // TABS_COUNT terechtkomt) — behalve het eerste lijstje ooit, dat komt
+  // vanzelf op plek 1 terecht.
+  function ensureInVolgorde(id) {
+    if (volgorde.includes(id)) return;
+    volgorde.push(id);
     saveVolgorde();
   }
 
   function removeFromVolgorde(id) {
-    volgorde = volgorde.filter((v) => v.id !== id);
+    volgorde = volgorde.filter((v) => v !== id);
     saveVolgorde();
   }
 
@@ -430,6 +433,16 @@ function start() {
   // overschrijven.
   let householdLijsten = [];
   let householdArchivedLijsten = [];
+  // "Grafstenen": id's van lijstjes die definitief (voorbij het archief)
+  // verwijderd zijn, met het tijdstip waarop dat gebeurde. Zonder dit zou
+  // mergeHouseholdState() een definitief verwijderd lijstje weer tevoorschijn
+  // toveren zodra de server nog de oude (nog niet definitief-verwijderde)
+  // versie ervan bevat — precies zoals een gewone "iets is gewijzigd"-merge
+  // een echte, bewuste verwijdering niet van "ik weet dit lijstje nog niet"
+  // kan onderscheiden. Wordt net als lijsten/archivedLijsten meegestuurd en
+  // -ontvangen, en na 30 dagen automatisch opgeruimd (net als het archief
+  // zelf, zie purgeExpiredLists).
+  let householdTombstones = [];
   // Zorgt dat opeenvolgende saveHousehold()-aanroepen netjes op hun beurt
   // wachten in plaats van elkaar in de weg te zitten (zie saveHousehold
   // verderop). Moet hier al bestaan, vóór de live-koppeling (onSnapshot)
@@ -478,35 +491,15 @@ function start() {
     return (l.updatedAt || 0) > gezien;
   }
 
-  // Zelfde subgroeps-volgorde-patroon als bij losse boodschappen: bepaalt
-  // de volgorde binnen "vastgepind" resp. "niet vastgepind", zodat de
-  // pijltjes nooit een lijstje tussen de andere groep laten belanden.
-  function volgordeIndexOrder(pinned) {
-    const order = [];
-    volgorde.forEach((v, i) => {
-      if (!!v.pinned === !!pinned) order.push(i);
-    });
-    return order;
-  }
-
+  // Een lijstje één plekje omhoog/omlaag in de volgorde — die volgorde
+  // bepaalt rechtstreeks welke lijstjes als tabblad bovenin staan (de
+  // eerste TABS_COUNT) en welke alleen in het ☰-paneel te vinden zijn.
   function moveList(id, direction) {
-    const myIndex = volgorde.findIndex((v) => v.id === id);
+    const myIndex = volgorde.indexOf(id);
     if (myIndex === -1) return;
-    const order = volgordeIndexOrder(volgorde[myIndex].pinned);
-    const pos = order.indexOf(myIndex);
-    if (pos === -1) return;
-    const swapPos = pos + direction;
-    if (swapPos < 0 || swapPos >= order.length) return;
-    const otherIndex = order[swapPos];
+    const otherIndex = myIndex + direction;
+    if (otherIndex < 0 || otherIndex >= volgorde.length) return;
     [volgorde[myIndex], volgorde[otherIndex]] = [volgorde[otherIndex], volgorde[myIndex]];
-    saveVolgorde();
-    renderTabsAndPanel();
-  }
-
-  function togglePin(id) {
-    const entry = volgorde.find((v) => v.id === id);
-    if (!entry) return;
-    entry.pinned = !entry.pinned;
     saveVolgorde();
     renderTabsAndPanel();
   }
@@ -704,7 +697,7 @@ function start() {
           priveLijsten.push(overgezet);
           savePrive();
         }
-        ensureInVolgorde(nieuwId, { pinned: false });
+        ensureInVolgorde(nieuwId);
       } catch (e) {
         console.error("Kon los tabblad niet meenemen:", tab, e);
       }
@@ -754,6 +747,7 @@ function start() {
       } else {
         householdLijsten = data.lijsten;
         householdArchivedLijsten = data.archivedLijsten || [];
+        householdTombstones = data.tombstones || [];
       }
 
       // Opgeruimde (>30 dagen oude) archief-lijstjes definitief weg.
@@ -877,7 +871,7 @@ function start() {
   // de meest recente van de twee, aan de hand van het eigen tijdstip van
   // dát ene lijstje (`updatedAt`, of `deletedAt` voor een gearchiveerde),
   // niet van het hele document ineens.
-  function mergeHouseholdState(serverLijsten, serverArchivedLijsten) {
+  function mergeHouseholdState(serverLijsten, serverArchivedLijsten, serverTombstones) {
     const record = new Map(); // lijst-id -> { lijst, archief, tijd }
 
     const overweeg = (l, archief) => {
@@ -899,10 +893,32 @@ function start() {
     householdLijsten.forEach((l) => overweeg(l, false));
     householdArchivedLijsten.forEach((l) => overweeg(l, true));
 
+    // Grafstenen samenvoegen (per id de nieuwste). Zonder dit zou een
+    // definitief-verwijderd lijstje dat lokaal nergens meer instaat, maar
+    // waar de server nog een (oudere, nog niet definitief-verwijderde)
+    // kopie van heeft, hierboven gewoon weer worden "gevonden" en dus
+    // stilletjes terugkomen — precies het verschil tussen "ik weet dit
+    // lijstje nog niet" en "dit lijstje is bewust voorgoed weg".
+    const tombstones = new Map();
+    (serverTombstones || []).forEach((t) => {
+      if (!t || !t.id) return;
+      const bestaand = tombstones.get(t.id);
+      if (!bestaand || t.deletedForeverAt >= bestaand.deletedForeverAt) tombstones.set(t.id, t);
+    });
+    (householdTombstones || []).forEach((t) => {
+      if (!t || !t.id) return;
+      const bestaand = tombstones.get(t.id);
+      if (!bestaand || t.deletedForeverAt >= bestaand.deletedForeverAt) tombstones.set(t.id, t);
+    });
+
     const lijsten = [];
     const archivedLijsten = [];
-    record.forEach(({ lijst, archief }) => (archief ? archivedLijsten : lijsten).push(lijst));
-    return { lijsten, archivedLijsten };
+    record.forEach(({ lijst, archief, tijd }, id) => {
+      const steen = tombstones.get(id);
+      if (steen && steen.deletedForeverAt >= tijd) return; // definitief weg, niet laten herleven
+      (archief ? archivedLijsten : lijsten).push(lijst);
+    });
+    return { lijsten, archivedLijsten, tombstones: Array.from(tombstones.values()) };
   }
 
   // Meerdere plekken in de app kunnen (bijna) tegelijk saveHousehold()
@@ -928,10 +944,11 @@ function start() {
       await runTransaction(db, async (transaction) => {
         const snap = await transaction.get(householdRef);
         const server = snap.exists() ? snap.data() : {};
-        const merged = mergeHouseholdState(server.lijsten || [], server.archivedLijsten || []);
+        const merged = mergeHouseholdState(server.lijsten || [], server.archivedLijsten || [], server.tombstones || []);
         transaction.set(householdRef, {
           lijsten: merged.lijsten,
           archivedLijsten: merged.archivedLijsten,
+          tombstones: merged.tombstones,
           updatedAt: Date.now(),
         });
       });
@@ -999,6 +1016,11 @@ function start() {
     const beforePrive = priveArchief.length;
     priveArchief = priveArchief.filter((l) => l.deletedAt > cutoff);
     if (priveArchief.length !== beforePrive) savePriveArchief();
+    // Grafstenen ouder dan 30 dagen mogen ook weg: na die tijd is de
+    // "gevaarlijke" oude archiefkopie toch al overal vanzelf opgeruimd
+    // (zie hierboven), dus is de grafsteen niet meer nodig om herleven te
+    // voorkomen — zo blijft die lijst niet eindeloos doorgroeien.
+    householdTombstones = (householdTombstones || []).filter((t) => t.deletedForeverAt > cutoff);
     return householdArchivedLijsten.length !== before;
   }
 
@@ -1195,7 +1217,12 @@ function start() {
       const rest = getAllLists().filter((x) => x.id !== activeId);
       if (rest.length > 0) {
         await switchToList(rest[0].id);
-      } else if (activePrive) {
+      } else {
+        // Was dit echt het allerlaatste lijstje (gedeeld of privé) van dit
+        // toestel? Dan moet er meteen een nieuwe voor terugkomen — anders
+        // blijft het scherm leeg staan (er is dan niets meer om naar toe te
+        // schakelen, en updateDeletedView() zou anders nooit meer aangeroepen
+        // worden om het hoofdscherm weer te tonen).
         addList(true);
       }
     });
@@ -1225,9 +1252,33 @@ function start() {
       l.updatedAt = Date.now();
       householdLijsten.push(l);
     }
-    ensureInVolgorde(id, { pinned: false });
+    ensureInVolgorde(id);
     renderTabsAndPanel();
     if (prive) return;
+    await saveHousehold();
+  }
+
+  // Een verwijderd lijstje definitief weggooien, meteen — geen extra
+  // bevestiging nodig: het lijstje is al 2x bewust verwijderd (eerst uit
+  // de lijstjes, nu ook nog uit het archief), net als bij losse items.
+  async function permanentlyDeleteList(id, prive) {
+    if (prive) {
+      const idx = priveArchief.findIndex((l) => l.id === id);
+      if (idx === -1) return;
+      priveArchief.splice(idx, 1);
+      savePriveArchief();
+      renderTabsAndPanel();
+      return;
+    }
+    const idx = householdArchivedLijsten.findIndex((l) => l.id === id);
+    if (idx === -1) return;
+    householdArchivedLijsten.splice(idx, 1);
+    // Een grafsteen achterlaten: zonder dit zou het opslaan hierna de
+    // server nog even kunnen raadplegen, daar de (nog niet
+    // definitief-verwijderde) kopie van dit lijstje aantreffen, en die
+    // per ongeluk weer laten herleven (zie mergeHouseholdState hierboven).
+    householdTombstones.push({ id, deletedForeverAt: Date.now() });
+    renderTabsAndPanel();
     await saveHousehold();
   }
 
@@ -1439,8 +1490,8 @@ function start() {
   }
 
   // ============================================================
-  // Tabbladen (alleen vastgepinde lijstjes) + het "Lijstjes"-paneel (alle
-  // lijstjes, met pin/volgorde/schakelen).
+  // Tabbladen (de eerste TABS_COUNT lijstjes, in jouw eigen volgorde) +
+  // het "Lijstjes"-paneel (echt alle lijstjes, met volgorde/schakelen).
   // ============================================================
   function renderTabsAndPanel() {
     renderTabs();
@@ -1451,13 +1502,24 @@ function start() {
     return (l.prive ? "🔒 " : "") + (l.naam || "Lijst") + (heeftIetsNieuws(l) ? " •" : "");
   }
 
+  // De id's die als tabblad bovenin staan: de eerste TABS_COUNT uit de
+  // volgorde die ook echt (nog) bestaan — een verdwenen id telt niet mee,
+  // zodat er nooit minder tabbladen staan dan er lijstjes beschikbaar zijn.
+  function tabIds() {
+    const ids = [];
+    for (const id of volgorde) {
+      if (ids.length >= TABS_COUNT) break;
+      if (findList(id)) ids.push(id);
+    }
+    return ids;
+  }
+
   function renderTabs() {
     if (!el.listTabs) return;
     el.listTabs.innerHTML = "";
     el.listTabs.hidden = false;
 
-    const pinnedIds = volgorde.filter((v) => v.pinned).map((v) => v.id);
-    for (const id of pinnedIds) {
+    for (const id of tabIds()) {
       const l = findList(id);
       if (!l) continue;
       const tab = document.createElement("button");
@@ -1498,17 +1560,15 @@ function start() {
     if (!el.listsPanelList) return;
     el.listsPanelList.innerHTML = "";
 
-    const pinnedIds = volgordeIndexOrder(true).map((i) => volgorde[i].id);
-    const unpinnedIds = volgordeIndexOrder(false).map((i) => volgorde[i].id);
-    const orderedIds = [...pinnedIds, ...unpinnedIds];
+    // Alleen id's die ook echt (nog) een bestaand lijstje zijn, in de
+    // eigen volgorde van dit toestel.
+    const orderedIds = volgorde.filter((id) => findList(id));
+    const tabs = tabIds();
 
-    orderedIds.forEach((id) => {
+    orderedIds.forEach((id, posInGroup) => {
       const l = findList(id);
       if (!l) return;
-      const entryIndex = volgorde.findIndex((v) => v.id === id);
-      const pinned = volgorde[entryIndex].pinned;
-      const group = pinned ? pinnedIds : unpinnedIds;
-      const posInGroup = group.indexOf(id);
+      const isTab = tabs.includes(id);
 
       const li = document.createElement("li");
       li.className = "lists-panel-row" + (id === activeId ? " active" : "");
@@ -1534,20 +1594,22 @@ function start() {
       downBtn.type = "button";
       downBtn.className = "move-btn";
       downBtn.textContent = "↓";
-      downBtn.disabled = posInGroup === -1 || posInGroup >= group.length - 1;
+      downBtn.disabled = posInGroup >= orderedIds.length - 1;
       downBtn.setAttribute("aria-label", `${l.naam} naar beneden verplaatsen`);
       downBtn.addEventListener("click", () => moveList(id, 1));
       moveWrap.append(upBtn, downBtn);
 
-      const pinBtn = document.createElement("button");
-      pinBtn.type = "button";
-      pinBtn.className = "pin-btn" + (pinned ? " active" : "");
-      pinBtn.textContent = "📌";
-      pinBtn.title = pinned ? "Niet meer als tabblad tonen" : "Als tabblad vastzetten";
-      pinBtn.setAttribute("aria-label", `${pinned ? "Losmaken" : "Vastzetten"} van ${l.naam}`);
-      pinBtn.addEventListener("click", () => togglePin(id));
+      // Geen aparte "vastpinnen"-knop meer — alleen nog een informatief
+      // label: de volgorde zelf (via de pijltjes hierboven) bepaalt of
+      // een lijstje als tabblad bovenin staat.
+      const tabBadge = document.createElement("span");
+      tabBadge.className = "lists-panel-tab-badge" + (isTab ? " active" : "");
+      tabBadge.textContent = isTab ? "tabblad" : "";
+      tabBadge.title = isTab
+        ? "Staat als tabblad bovenin"
+        : "Staat niet als tabblad bovenin — verschuif naar boven met ↑ om dat te veranderen";
 
-      li.append(switchBtn, moveWrap, pinBtn);
+      li.append(switchBtn, moveWrap, tabBadge);
 
       if (!l.prive) {
         const hideBtn = document.createElement("button");
@@ -1589,7 +1651,13 @@ function start() {
         restoreBtn.textContent = "Terugzetten";
         restoreBtn.addEventListener("click", () => restoreList(l.id, l.prive));
 
-        li.append(name, meta, restoreBtn);
+        const deleteForeverBtn = document.createElement("button");
+        deleteForeverBtn.type = "button";
+        deleteForeverBtn.className = "btn btn-ghost btn-small btn-delete-forever";
+        deleteForeverBtn.textContent = "Verwijder definitief";
+        deleteForeverBtn.addEventListener("click", () => permanentlyDeleteList(l.id, l.prive));
+
+        li.append(name, meta, restoreBtn, deleteForeverBtn);
         el.listsPanelArchived.appendChild(li);
       });
     }

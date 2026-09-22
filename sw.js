@@ -1,4 +1,4 @@
-const CACHE_NAME = "boodschappenlijst-v13";
+const CACHE_NAME = "boodschappenlijst-v15";
 const APP_SHELL = [
   "./",
   "./index.html",
