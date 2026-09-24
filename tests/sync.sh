@@ -41,8 +41,8 @@ for d in test-run test-unconfigured; do
   # ...) die app.js met "import" inleest, gewoon 1-op-1 meekopiëren.
   # config.js NIET meekopiëren: elke testmap heeft daar bewust een eigen
   # versie van (een ingevulde nep-config voor test-run, en juist de
-  # niet-ingevulde placeholder voor test-unconfigured) — dat mag dit
-  # script niet overschrijven.
+  # niet-ingevulde placeholder voor test-unconfigured) — die genereren we
+  # hieronder zelf, ze mogen niet uit de echte config.js komen.
   for f in "$APP_DIR"/*.js; do
     base="$(basename "$f")"
     if [ "$base" != "app.js" ] && [ "$base" != "config.js" ]; then
@@ -50,5 +50,41 @@ for d in test-run test-unconfigured; do
     fi
   done
 done
+
+# test-run: een nep-config die gewoon "ingevuld" lijkt (geen enkele echte
+# waarde nodig — mock-firestore.js/mock-messaging.js hierboven onderscheppen
+# toch alle Firebase-aanroepen), zodat de app zich gedraagt alsof config.js
+# al is ingevuld (geen waarschuwing, pushmeldingen-sectie zichtbaar).
+cat > test-run/config.js << 'EOF'
+const CONFIG = {
+  firebaseConfig: {
+    apiKey: "test-api-key",
+    authDomain: "test-project.firebaseapp.com",
+    projectId: "test-project",
+    storageBucket: "test-project.firebasestorage.app",
+    messagingSenderId: "000000000000",
+    appId: "1:000000000000:web:0000000000000000000000",
+  },
+  vapidKey: "test-vapid-key",
+};
+EOF
+
+# test-unconfigured: expres NIET ingevuld (net als de placeholder die
+# iemand voor het eerst zou zien vóórdat ze hun eigen Firebase-project
+# hebben ingevuld), om de waarschuwing en de "pushmeldingen nog niet
+# beschikbaar"-staat te kunnen testen.
+cat > test-unconfigured/config.js << 'EOF'
+const CONFIG = {
+  firebaseConfig: {
+    apiKey: "VUL-HIER-IN",
+    authDomain: "VUL-HIER-IN",
+    projectId: "VUL-HIER-IN",
+    storageBucket: "VUL-HIER-IN",
+    messagingSenderId: "VUL-HIER-IN",
+    appId: "VUL-HIER-IN",
+  },
+  vapidKey: "VUL-HIER-IN",
+};
+EOF
 
 echo "synced."

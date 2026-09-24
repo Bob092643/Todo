@@ -44,6 +44,13 @@ async function withDialogQueue(page, answers, fn) {
   try { await fn(); } finally { page.off("dialog", handler); }
 }
 
+// De "bezig"-knop zit achter het "⋯"-actiemenu van het item, dus dat moet
+// steeds eerst open (er staat in deze test steeds maar één item op de
+// lijst, dus het eerste actiemenu-knopje is ondubbelzinnig).
+async function openItemMenu(page) {
+  await page.click(".item-menu-btn");
+}
+
 (async () => {
   const server = makeServer(ROOT);
   await new Promise((r) => server.listen(0, r));
@@ -84,6 +91,7 @@ async function withDialogQueue(page, answers, fn) {
     check("W2. Vóór het zetten op bezig is er geen logregel", logVoor === 0);
 
     // Op bezig zetten mét een notitie.
+    await openItemMenu(page);
     await withDialogQueue(page, ["gebeld, voicemail ingesproken"], async () => {
       await page.click(".bezig-btn");
       await page.waitForTimeout(150);
@@ -95,11 +103,13 @@ async function withDialogQueue(page, answers, fn) {
     check("W4. De 'bezig'-knop zelf ziet er nu ook 'actief' uit", knopActief === 1);
 
     // Weer uitzetten.
+    await openItemMenu(page);
     await page.click(".bezig-btn");
     await page.waitForTimeout(150);
     check("W5. Na nog een keer klikken is de logregel weer weg", (await page.locator(".item-bezig-log").count()) === 0);
 
     // Op bezig zetten ZONDER notitie (leeg gelaten) → alleen de naam.
+    await openItemMenu(page);
     await withDialogQueue(page, [""], async () => {
       await page.click(".bezig-btn");
       await page.waitForTimeout(150);
@@ -108,8 +118,10 @@ async function withDialogQueue(page, answers, fn) {
     check("W6. Zonder notitie staat alleen de naam in de logregel (geen extra zin, geen tijd)", logTekst2.trim() === "Bob");
 
     // Annuleren van de prompt laat de status ongemoeid.
+    await openItemMenu(page);
     await page.click(".bezig-btn"); // eerst weer uitzetten
     await page.waitForTimeout(100);
+    await openItemMenu(page);
     await withDialogQueue(page, [false], async () => {
       await page.click(".bezig-btn");
       await page.waitForTimeout(150);
@@ -117,6 +129,7 @@ async function withDialogQueue(page, answers, fn) {
     check("W7. Annuleren van de notitie-prompt zet het item niet alsnog op bezig", (await page.locator(".bezig-btn.active").count()) === 0);
 
     // Op bezig zetten en dan afvinken: bezig moet automatisch verdwijnen.
+    await openItemMenu(page);
     await withDialogQueue(page, ["notitie die zo weer weg moet"], async () => {
       await page.click(".bezig-btn");
       await page.waitForTimeout(150);

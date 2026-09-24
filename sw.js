@@ -1,4 +1,4 @@
-const CACHE_NAME = "boodschappenlijst-v20";
+const CACHE_NAME = "boodschappenlijst-v21";
 // Belangrijk: sinds app.js is opgeknipt in losse module-bestanden (die
 // app.js zelf met "import" inleest) moeten die HIER OOK stuk voor stuk bij
 // staan — anders werkt de app zelf niet meer offline (index.html/app.js
@@ -15,7 +15,7 @@ const APP_SHELL = [
   "./naam.js",
   "./toast.js",
   "./compact.js",
-  "./categorieen.js",
+  "./tekst.js",
   "./config.js",
   "./manifest.json",
 ];

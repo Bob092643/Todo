@@ -95,6 +95,7 @@ async function withServer(root, fn) {
     await page.waitForTimeout(150);
     check("A4. Item afvinken markeert 'm als gedaan", await page.$eval("#list li", (li) => li.classList.contains("done")));
 
+    await page.click("#list li .item-menu-btn");
     await page.click("#list li .delete-btn");
     await page.waitForTimeout(500); // animatie + vangnet-timeout
     check("A5. Item verwijderen laat de lijst weer leeg zien", await page.isVisible("#empty-hint"));
@@ -446,6 +447,7 @@ async function withServer(root, fn) {
     await page.fill("#new-item", "Weg te gooien item");
     await page.click("button[type=submit]");
     await page.waitForTimeout(150);
+    await page.click("#list li .item-menu-btn");
     await page.click("#list li .delete-btn");
     await page.waitForTimeout(500);
 
