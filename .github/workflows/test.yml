@@ -1,0 +1,34 @@
+name: Tests
+
+# Draait automatisch de hele testverzameling (tests/) bij elke wijziging:
+# zowel wanneer je iets naar GitHub pusht, als bij elke pull request. Zo
+# zie je het meteen (een rood kruisje op je commit/PR) als een wijziging
+# ergens per ongeluk iets kapotmaakt, zonder dat je zelf steeds handmatig
+# alle tests hoeft te draaien.
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code ophalen
+        uses: actions/checkout@v4
+
+      - name: Node.js installeren
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Testafhankelijkheden installeren (Playwright)
+        working-directory: tests
+        run: npm install
+
+      - name: Chromium installeren (de browser die de tests gebruiken)
+        working-directory: tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Alle tests draaien
+        working-directory: tests
+        run: bash run-all.sh

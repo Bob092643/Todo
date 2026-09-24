@@ -1,0 +1,7 @@
+# Door tests/sync.sh zelf gegenereerde testkopieën van de app — hoeven
+# niet in Git, want elke testrun (ook in CI) maakt ze opnieuw aan.
+tests/test-run/
+tests/test-unconfigured/
+
+# Door "npm install" in tests/ gedownloade testafhankelijkheden.
+tests/node_modules/

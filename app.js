@@ -5,13 +5,29 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import {
-  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   doc,
   getDoc,
   setDoc,
   onSnapshot,
   runTransaction,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import {
+  getMessaging,
+  getToken,
+  deleteToken,
+  onMessage,
+  isSupported as pushWordtOndersteund,
+} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging.js";
+
+import { el } from "./dom.js";
+import "./kleur.js";
+import "./compact.js";
+import { getMyName, askNameIfNeeded, updateNameBtn } from "./naam.js";
+import { showToast } from "./toast.js";
+import { normaliseerTekst, raadCategorienaamUitWoordenboek, volgendeCategorieKleur } from "./categorieen.js";
 
 const CHECK_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
@@ -22,298 +38,15 @@ const CHECK_ICON =
 const CLOCK_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l3 2"></path></svg>';
 
-// --- DOM references ---
-const el = {
-  app: document.getElementById("app"),
-  configHint: document.getElementById("config-hint"),
-  addForm: document.getElementById("add-form"),
-  newItem: document.getElementById("new-item"),
-  list: document.getElementById("list"),
-  emptyHint: document.getElementById("empty-hint"),
-  syncStatus: document.getElementById("sync-status"),
-  statusDot: document.getElementById("status-dot"),
-  shareBtn: document.getElementById("share-btn"),
-  listCodeBtn: document.getElementById("list-code-btn"),
-  listCodeValue: document.getElementById("list-code-value"),
-  renameBtn: document.getElementById("rename-btn"),
-  listNameEl: document.getElementById("list-name"),
-  lockIcon: document.getElementById("list-lock-icon"),
-  colorBtn: document.getElementById("color-btn"),
-  colorPicker: document.getElementById("color-picker"),
-  colorResetBtn: document.getElementById("color-reset-btn"),
-  nameBtn: document.getElementById("name-btn"),
-  listTabs: document.getElementById("list-tabs"),
-  listsPanel: document.getElementById("lists-panel"),
-  listsCloseBtn: document.getElementById("lists-close-btn"),
-  listsPanelList: document.getElementById("lists-panel-list"),
-  listsPanelArchivedSection: document.getElementById("lists-panel-archived-section"),
-  listsPanelArchived: document.getElementById("lists-panel-archived"),
-  listsPanelHiddenSection: document.getElementById("lists-panel-hidden-section"),
-  listsPanelHidden: document.getElementById("lists-panel-hidden"),
-  listsAddBtn: document.getElementById("lists-add-btn"),
-  archiveBtn: document.getElementById("archive-btn"),
-  archivePanel: document.getElementById("archive-panel"),
-  archiveCloseBtn: document.getElementById("archive-close-btn"),
-  archiveList: document.getElementById("archive-list"),
-  archiveEmptyHint: document.getElementById("archive-empty-hint"),
-  deleteListBtn: document.getElementById("delete-list-btn"),
-  settingsBtn: document.getElementById("settings-btn"),
-  settingsPanel: document.getElementById("settings-panel"),
-  settingsCloseBtn: document.getElementById("settings-close-btn"),
-  settingsNameHint: document.getElementById("settings-name-hint"),
-  toast: document.getElementById("toast"),
-  toastText: document.getElementById("toast-text"),
-  toastUndoBtn: document.getElementById("toast-undo-btn"),
-};
-
 // Hoe lang een verwijderd item (of een verwijderd lijstje) bewaard blijft
 // voor het definitief weg is.
 const ARCHIVE_DAYS = 30;
 const ARCHIVE_MS = ARCHIVE_DAYS * 24 * 60 * 60 * 1000;
 
-// De kleur waarmee de app standaard start (zie ook style.css en de
-// "value" van #color-picker in index.html) — hier gebruikt om "Standaard"
-// weer te kunnen terugzetten.
-const DEFAULT_COLOR = "#3b63e0";
-
 // state: "neutral" | "saving" | "synced" | "error"
 function setSyncStatus(text, state = "neutral") {
   el.syncStatus.textContent = text;
   el.statusDot.className = "status-dot" + (state !== "neutral" ? ` ${state}` : "");
-}
-
-// --- Persoonlijke kleur (alleen op dit toestel, niet gedeeld) ---
-const COLOR_STORAGE_KEY = "boodschappenlijst:kleur";
-
-function hexToHsl(hex) {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h, s;
-  const l = (max + min) / 2;
-  if (max === min) {
-    h = s = 0;
-  } else {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-      case g: h = (b - r) / d + 2; break;
-      default: h = (r - g) / d + 4;
-    }
-    h /= 6;
-  }
-  return [h * 360, s * 100, l * 100];
-}
-
-function hslToHex(h, s, l) {
-  h /= 360; s /= 100; l /= 100;
-  let r, g, b;
-  if (s === 0) {
-    r = g = b = l;
-  } else {
-    const hue2rgb = (p, q, t) => {
-      if (t < 0) t += 1;
-      if (t > 1) t -= 1;
-      if (t < 1 / 6) return p + (q - p) * 6 * t;
-      if (t < 1 / 2) return q;
-      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-      return p;
-    };
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
-    r = hue2rgb(p, q, h + 1 / 3);
-    g = hue2rgb(p, q, h);
-    b = hue2rgb(p, q, h - 1 / 3);
-  }
-  const toHex = (x) => Math.round(x * 255).toString(16).padStart(2, "0");
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-}
-
-function applyAccentColor(hex) {
-  const [h, s, l] = hexToHsl(hex);
-  const root = document.documentElement.style;
-  root.setProperty("--blue-600", hex);
-  root.setProperty("--blue-700", hslToHex(h, s, Math.max(l - 10, 8)));
-  root.setProperty("--blue-500", hslToHex(h, Math.min(s + 5, 100), Math.min(l + 12, 88)));
-  root.setProperty("--blue-50", hslToHex(h, Math.min(s, 60), 94));
-}
-
-(function loadSavedColor() {
-  try {
-    const saved = localStorage.getItem(COLOR_STORAGE_KEY);
-    if (saved) {
-      applyAccentColor(saved);
-      if (el.colorPicker) el.colorPicker.value = saved;
-    }
-  } catch (e) {
-    /* localStorage niet beschikbaar; app blijft gewoon de standaardkleur tonen */
-  }
-})();
-
-if (el.colorBtn && el.colorPicker) {
-  el.colorBtn.addEventListener("click", () => el.colorPicker.click());
-  el.colorPicker.addEventListener("input", () => {
-    const hex = el.colorPicker.value;
-    applyAccentColor(hex);
-    try {
-      localStorage.setItem(COLOR_STORAGE_KEY, hex);
-    } catch (e) {
-      /* kleur werkt nog wel voor deze sessie, wordt alleen niet onthouden */
-    }
-  });
-}
-
-if (el.colorResetBtn) {
-  el.colorResetBtn.addEventListener("click", () => {
-    // Niet applyAccentColor(DEFAULT_COLOR) gebruiken: dat berekent de 3
-    // afgeleide tinten opnieuw met dezelfde HSL-formule als voor een door
-    // de gebruiker gekozen kleur, en dat gaf een iets andere (merkbaar
-    // hardere) tint dan de eigenlijke standaardkleuren hieronder in
-    // style.css — je zag dus meteen een andere kleur, ook al had je "de
-    // standaard" al. In plaats daarvan gewoon de eigen kleur-overrides
-    // weghalen: dan valt de pagina vanzelf terug op de originele waardes
-    // uit style.css (en ook automatisch op de donkere-modus-varianten
-    // daarvan, als dat van toepassing is) — precies dezelfde kleur die je
-    // ook na herladen zou zien.
-    const root = document.documentElement.style;
-    root.removeProperty("--blue-600");
-    root.removeProperty("--blue-700");
-    root.removeProperty("--blue-500");
-    root.removeProperty("--blue-50");
-    if (el.colorPicker) el.colorPicker.value = DEFAULT_COLOR;
-    try {
-      localStorage.removeItem(COLOR_STORAGE_KEY);
-    } catch (e) {
-      /* niet erg, de standaardkleur staat nu sowieso weer actief */
-    }
-  });
-}
-
-// --- Persoonlijke naam (alleen op dit toestel) ---
-const NAME_STORAGE_KEY = "boodschappenlijst:naam";
-const NAME_ASKED_KEY = "boodschappenlijst:naam-gevraagd";
-
-function loadMyName() {
-  try {
-    return localStorage.getItem(NAME_STORAGE_KEY) || null;
-  } catch (e) {
-    return null;
-  }
-}
-
-function saveMyName(name) {
-  try {
-    if (name) localStorage.setItem(NAME_STORAGE_KEY, name);
-    else localStorage.removeItem(NAME_STORAGE_KEY);
-  } catch (e) {
-    /* werkt nog wel voor deze sessie, wordt alleen niet onthouden */
-  }
-}
-
-let myName = loadMyName();
-
-function normalizeName(input) {
-  const trimmed = (input || "").trim();
-  return trimmed.length >= 2 ? trimmed : null;
-}
-
-function updateNameBtn() {
-  if (el.nameBtn) el.nameBtn.textContent = myName ? "Naam wijzigen" : "Naam instellen";
-  if (el.settingsNameHint) {
-    el.settingsNameHint.textContent = myName
-      ? `Nu ingesteld als "${myName}".`
-      : "Nog niet ingesteld — anderen zien dan niet wie iets heeft toegevoegd of afgevinkt.";
-  }
-}
-updateNameBtn();
-
-if (el.nameBtn) {
-  el.nameBtn.addEventListener("click", () => {
-    const naam = prompt(
-      "Hoe wil je genoemd worden in deze lijst? (bijv. Papa, Mama, Joris)\n\nZo zien anderen wie iets heeft toegevoegd of afgevinkt.",
-      myName || ""
-    );
-    if (naam === null) return; // geannuleerd
-    myName = normalizeName(naam);
-    saveMyName(myName);
-    updateNameBtn();
-  });
-}
-
-function askNameIfNeeded() {
-  let asked = false;
-  try {
-    asked = localStorage.getItem(NAME_ASKED_KEY) === "1";
-  } catch (e) {
-    /* geen probleem, dan vragen we het gewoon (nogmaals) */
-  }
-  if (myName || asked) return;
-  try {
-    localStorage.setItem(NAME_ASKED_KEY, "1");
-  } catch (e) {
-    /* niet erg */
-  }
-  const naam = prompt(
-    "Hoe wil je genoemd worden in deze lijst? (bijv. Papa, Mama, Joris)\n\nZo zien anderen wie iets heeft toegevoegd of afgevinkt. Je kunt dit later nog aanpassen via ⚙️ Instellingen. Leeg laten kan ook.",
-    ""
-  );
-  const normalized = normalizeName(naam);
-  if (normalized) {
-    myName = normalized;
-    saveMyName(myName);
-  }
-  updateNameBtn();
-}
-
-// --- Kort meldingsbalkje onderin, met "Ongedaan maken" ---
-let toastTimer = null;
-let undoStack = []; // { text, undo } — meest recente actie achteraan
-
-function positionToastAboveFooter() {
-  if (!el.toast) return;
-  const footer = document.querySelector(".statusbar");
-  const footerHeight = footer ? footer.getBoundingClientRect().height : 0;
-  el.toast.style.bottom = `calc(${footerHeight}px + env(safe-area-inset-bottom, 0px) + 10px)`;
-}
-
-function renderToast() {
-  if (!el.toast || undoStack.length === 0) return;
-  const top = undoStack[undoStack.length - 1];
-  el.toastText.textContent =
-    undoStack.length > 1 ? `${top.text} (+${undoStack.length - 1} eerder)` : top.text;
-  positionToastAboveFooter();
-  el.toast.hidden = false;
-}
-
-function hideToast() {
-  clearTimeout(toastTimer);
-  undoStack = [];
-  if (el.toast) el.toast.hidden = true;
-}
-
-function showToast(text, undoFn) {
-  if (!el.toast) return;
-  undoStack.push({ text, undo: undoFn });
-  if (undoStack.length > 5) undoStack.shift();
-  clearTimeout(toastTimer);
-  renderToast();
-  toastTimer = setTimeout(hideToast, 5000);
-}
-
-if (el.toastUndoBtn) {
-  el.toastUndoBtn.addEventListener("click", () => {
-    const top = undoStack.pop();
-    clearTimeout(toastTimer);
-    if (top) top.undo();
-    if (undoStack.length > 0) {
-      renderToast();
-      toastTimer = setTimeout(hideToast, 5000);
-    } else {
-      hideToast();
-    }
-  });
 }
 
 // --- Config-check ---
@@ -326,7 +59,29 @@ if (!CONFIG.firebaseConfig || CONFIG.firebaseConfig.apiKey === "VUL-HIER-IN") {
 
 function start() {
   const firebaseApp = initializeApp(CONFIG.firebaseConfig);
-  const db = getFirestore(firebaseApp);
+  // Bewaart de laatst-gesynchroniseerde stand ook lokaal (IndexedDB), niet
+  // alleen in het geheugen van de pagina. Zonder dit zou een herlaad-beurt
+  // zonder internet (bijv. in de winkel, weinig bereik) een helemaal lege
+  // lijst laten zien tot de verbinding terug is — mét deze instelling
+  // verschijnt gewoon de laatst bekende lijst meteen, en werkt afvinken /
+  // toevoegen ook zonder verbinding gewoon door (de wijzigingen wachten
+  // dan lokaal totdat er weer bereik is, en gaan er dan vanzelf uit).
+  // "MultipleTabManager" is nodig omdat iemand dit lijstje soms in meer
+  // dan één tabblad tegelijk open heeft staan — zonder die instelling zou
+  // alleen het eerst-geopende tabblad deze lokale opslag mogen gebruiken.
+  let db;
+  try {
+    db = initializeFirestore(firebaseApp, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
+  } catch (e) {
+    // Kan in zeldzame gevallen mislukken (bijv. privénavigatie op sommige
+    // toestellen, waar IndexedDB niet of nauwelijks beschikbaar is) — dan
+    // gewoon terugvallen op de gewone werking van hiervoor (alles alleen
+    // in het geheugen van de pagina, geen lokale opslag na herladen).
+    console.warn("Kon geen lokale (offline) opslag instellen, val terug op alleen-geheugen:", e);
+    db = initializeFirestore(firebaseApp, {});
+  }
 
   const DEFAULT_LIST_NAME = "Onze lijst";
 
@@ -481,7 +236,53 @@ function start() {
   let householdSaveChain = Promise.resolve();
 
   let items = [];
+  // Per lijstje eigen categorieën ({id, naam, kleur}) en wat er per
+  // itemnaam eerder aan categorie is toegekend (genormaliseerde tekst ->
+  // categorie-id) — reizen gewoon mee met de rest van het lijstje (zie
+  // applyActiveTarget/saveList), net als items/archivedItems.
+  let categorieen = [];
+  let categorieGeschiedenis = {};
+  // Snel toevoegen: favorieten zijn zelf gekozen ({id, tekst}, blijft staan
+  // tot iemand 'm weer verwijdert) en itemFrequentie telt gewoon hoe vaak
+  // een itemnaam (genormaliseerd -> {aantal, tekst}) is toegevoegd, zodat
+  // vaak-toegevoegde dingen vanzelf als suggestie verschijnen zonder dat
+  // iemand ze apart hoeft aan te vinken. "tekst" bewaart daarbij steeds de
+  // laatst getypte schrijfwijze (hoofdletters etc.), zodat de suggestie er
+  // ook nog netjes uitziet nadat alle exemplaren allang zijn afgevinkt en
+  // verwijderd. Beide reizen mee met het lijstje, net als categorieen
+  // hierboven.
+  let favorieten = [];
+  let itemFrequentie = {};
+  // Moet hier al bestaan (niet pas verderop bij berekenSnelSuggesties):
+  // render() wordt namelijk al héél vroeg tijdens het opstarten aangeroepen
+  // (via resolveActiveList), dus een constante die pas later in de functie
+  // gedeclareerd zou worden geeft dan een TDZ-fout ("cannot access before
+  // initialization") — precies zoals eerder ook al bij
+  // groeperenOpCategorie gebeurde.
+  const SNEL_TOEVOEGEN_MAX = 10;
   let archivedItems = [];
+  // "Groeperen op categorie" is een device-only weergavevoorkeur (net als
+  // de compacte weergave), geen per-lijstje-instelling — vandaar gewoon
+  // hier al vroeg ingeladen, ruim vóór de eerste render().
+  const GROEPEREN_KEY = "boodschappenlijst:groeperen-categorie";
+  let groeperenOpCategorie = localStorage.getItem(GROEPEREN_KEY) === "1";
+
+  function updateGroepKnop() {
+    if (el.groepBtn) {
+      el.groepBtn.textContent = `Groeperen op categorie: ${groeperenOpCategorie ? "aan" : "uit"}`;
+      el.groepBtn.classList.toggle("active", groeperenOpCategorie);
+    }
+  }
+  updateGroepKnop();
+
+  if (el.groepBtn) {
+    el.groepBtn.addEventListener("click", () => {
+      groeperenOpCategorie = !groeperenOpCategorie;
+      try { localStorage.setItem(GROEPEREN_KEY, groeperenOpCategorie ? "1" : "0"); } catch (e) { /* niet erg */ }
+      updateGroepKnop();
+      render();
+    });
+  }
   let listName = DEFAULT_LIST_NAME;
   let activeId = null;
   let activePrive = false;
@@ -697,6 +498,21 @@ function start() {
   setSyncStatus("Verbinden...");
   setTimeout(askNameIfNeeded, 300);
 
+  // Duidelijk (en geruststellend, niet als een storing) laten zien
+  // wanneer dit toestel geen internet heeft: afvinken/toevoegen/etc.
+  // blijft gewoon werken (dankzij de lokale opslag hierboven), maar wordt
+  // dan pas echt met anderen gedeeld zodra er weer bereik is. Overschrijft
+  // bewust de normale status-tekst zolang je offline bent; zodra je weer
+  // online bent nemen de gewone save/sync-meldingen het vanzelf weer over.
+  function updateOnlineStatus() {
+    if (!navigator.onLine) {
+      setSyncStatus("Offline — wijzigingen worden bewaard", "offline");
+    }
+  }
+  updateOnlineStatus();
+  window.addEventListener("online", updateOnlineStatus);
+  window.addEventListener("offline", updateOnlineStatus);
+
   // ============================================================
   // Eenmalige migratie van losse, eerder-bekende tabbladen (uit de vorige
   // versie: elk tabblad een eigen, apart gedeelde code) naar dit
@@ -846,6 +662,10 @@ function start() {
     activeId = target.id;
     activePrive = !!target.prive;
     items = target.items || [];
+    categorieen = target.categorieen || [];
+    categorieGeschiedenis = target.categorieGeschiedenis || {};
+    favorieten = target.favorieten || [];
+    itemFrequentie = target.itemFrequentie || {};
     archivedItems = target.archivedItems || [];
     setListName(target.naam);
     updateLockIcon();
@@ -1012,10 +832,23 @@ function start() {
         const server = snap.exists() ? snap.data() : {};
         const merged = mergeHouseholdState(server.lijsten || [], server.archivedLijsten || [], server.tombstones || []);
         transaction.set(householdRef, {
+          // "...server" eerst: dit schrijft de HELE document opnieuw weg
+          // (geen { merge: true }), dus alles wat hier niet expliciet
+          // wordt overgenomen zou anders stilletjes verdwijnen — zoals
+          // eerder de pushTokens hieronder deed, tot iemand pushmeldingen
+          // aanzette en de eerstvolgende gewone lijst-opslag het token
+          // alweer wegveegde.
+          ...server,
           lijsten: merged.lijsten,
           archivedLijsten: merged.archivedLijsten,
           tombstones: merged.tombstones,
           updatedAt: Date.now(),
+          // Welk toestel (via zijn eigen pushtoken, of null als dit toestel
+          // geen pushmeldingen aan heeft staan) deze opslag deed. De Cloud
+          // Function (functions/index.js) gebruikt dit om precies dát ene
+          // toestel over te slaan bij het versturen van de melding — anders
+          // zou je ook een melding krijgen over je eigen toevoeging.
+          laatsteSchrijver: huidigPushToken() || null,
         });
       });
       // Bewust NIET hierna nog even snel "householdLijsten" gelijkzetten aan
@@ -1050,6 +883,10 @@ function start() {
       const entry = priveLijsten.find((l) => l.id === activeId);
       if (entry) {
         entry.items = items;
+        entry.categorieen = categorieen;
+        entry.categorieGeschiedenis = categorieGeschiedenis;
+        entry.favorieten = favorieten;
+        entry.itemFrequentie = itemFrequentie;
         entry.archivedItems = archivedItems;
         entry.naam = listName;
         entry.updatedAt = now;
@@ -1065,6 +902,10 @@ function start() {
     const entry = householdLijsten.find((l) => l.id === activeId);
     if (entry) {
       entry.items = items;
+      entry.categorieen = categorieen;
+      entry.categorieGeschiedenis = categorieGeschiedenis;
+      entry.favorieten = favorieten;
+      entry.itemFrequentie = itemFrequentie;
       entry.archivedItems = archivedItems;
       entry.naam = listName;
       entry.updatedAt = now;
@@ -1373,21 +1214,393 @@ function start() {
     return order;
   }
 
-  function moveItem(id, direction) {
-    const myIndex = items.findIndex((i) => i.id === id);
-    if (myIndex === -1) return;
-    const order = activeIndexOrder(items[myIndex].pinned);
-    const pos = order.indexOf(myIndex);
-    if (pos === -1) return;
-    const swapWithPos = pos + direction;
-    if (swapWithPos < 0 || swapWithPos >= order.length) return;
-    const otherIndex = order[swapWithPos];
-    [items[myIndex], items[otherIndex]] = [items[otherIndex], items[myIndex]];
+  // Past de volgorde binnen één groep (vastgepind/niet) aan, zonder de
+  // plek van de ANDERE groep in het items-array te verstoren: dezelfde
+  // posities (activeIndexOrder) blijven bezet, alleen welke items erin
+  // staan verandert.
+  function herschikGroep(pinned, geordendeIds) {
+    const posities = activeIndexOrder(pinned);
+    if (posities.length !== geordendeIds.length) return; // zou niet moeten gebeuren; voorzichtigheidshalve niks doen
+    const nieuweItems = geordendeIds.map((id) => items.find((i) => i.id === id));
+    if (nieuweItems.some((it) => !it)) return;
+    posities.forEach((idx, i) => { items[idx] = nieuweItems[i]; });
+  }
+
+  // ============================================================
+  // Verslepen om te herordenen — vervangt de oude ↑/↓-knoppen. Werkt met
+  // zowel muis als vinger via Pointer Events (dezelfde events voor allebei,
+  // dus geen aparte touch-behandeling nodig). Alleen binnen dezelfde groep
+  // (vastgepind, of niet — net als de oude pijltjes ook al deden), en
+  // helemaal niet bij "groeperen op categorie" (buildItemRow geeft dan
+  // showMoveButtons: false mee, dus er verschijnt dan ook geen handvat).
+  //
+  // Aanpak: bij het vastpakken leggen we de huidige (verticale) middens
+  // van alle sleepbare items in dezelfde groep vast. Tijdens het slepen
+  // schuift alleen het vastgepakte item zelf visueel mee (via CSS
+  // transform) — de andere items blijven op hun plek, dat houdt het
+  // simpel en voorspelbaar. Pas bij loslaten wordt op basis van waar het
+  // vastgepakte item dan terecht is gekomen (vergeleken met die vastgelegde
+  // middens) de nieuwe volgorde echt toegepast.
+  // ============================================================
+  let sleepState = null;
+
+  function startSlepen(e, itemId, pinned) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const li = el.list.querySelector(`li[data-id="${CSS.escape(itemId)}"]`);
+    if (!li) return;
+    e.preventDefault();
+
+    const groepLis = Array.prototype.filter.call(el.list.querySelectorAll("li[data-id]"), (candidate) => {
+      const it = items.find((i) => i.id === candidate.dataset.id);
+      return it && !it.done && !!it.pinned === !!pinned;
+    });
+    const middens = groepLis.map((candidate) => {
+      const r = candidate.getBoundingClientRect();
+      return { id: candidate.dataset.id, midden: r.top + r.height / 2 };
+    });
+
+    const rect = li.getBoundingClientRect();
+    sleepState = {
+      itemId,
+      pinned,
+      li,
+      startY: e.clientY,
+      origMidden: rect.top + rect.height / 2,
+      middens,
+    };
+    li.classList.add("slepen");
+    document.addEventListener("pointermove", onSlepen);
+    document.addEventListener("pointerup", eindigSlepen);
+    document.addEventListener("pointercancel", eindigSlepen);
+  }
+
+  function onSlepen(e) {
+    if (!sleepState) return;
+    const deltaY = e.clientY - sleepState.startY;
+    sleepState.li.style.transform = `translateY(${deltaY}px)`;
+  }
+
+  function eindigSlepen(e) {
+    document.removeEventListener("pointermove", onSlepen);
+    document.removeEventListener("pointerup", eindigSlepen);
+    document.removeEventListener("pointercancel", eindigSlepen);
+    if (!sleepState) return;
+    const { itemId, pinned, li, startY, origMidden, middens } = sleepState;
+    sleepState = null;
+    li.classList.remove("slepen");
+    li.style.transform = "";
+
+    const deltaY = e.clientY - startY;
+    const eindMidden = origMidden + deltaY;
+
+    const oorspronkelijkeVolgorde = middens.map((m) => m.id);
+    const anderen = middens.filter((m) => m.id !== itemId);
+    let nieuwePositie = 0;
+    anderen.forEach((m) => { if (m.midden < eindMidden) nieuwePositie++; });
+    const geordendeIds = anderen.map((m) => m.id);
+    geordendeIds.splice(nieuwePositie, 0, itemId);
+
+    // Niks veranderd (bijv. gewoon een tikje op het handvat, geen echte
+    // sleepbeweging)? Dan ook geen onnodige render/opslag.
+    if (geordendeIds.join(",") === oorspronkelijkeVolgorde.join(",")) return;
+
+    herschikGroep(pinned, geordendeIds);
     render();
     scheduleSave();
   }
 
-  function buildItemRow(item, { isFirstActive, isLastActive, showMoveButtons }) {
+  // ============================================================
+  // Categorieën — per lijstje eigen in te delen (zie categorieen.js voor
+  // het ingebouwde woordenboek en het kleurenpalet).
+  // ============================================================
+  function vindCategorie(id) {
+    return id ? categorieen.find((c) => c.id === id) || null : null;
+  }
+
+  // Bestaat er al een categorie met deze naam (ongeacht hoofd-/kleine
+  // letters) in dít lijstje? Zo niet: meteen aanmaken. Geeft steeds een
+  // categorie-id terug.
+  function vindOfMaakCategorie(naam, kleur) {
+    const bestaande = categorieen.find((c) => c.naam.toLowerCase() === naam.toLowerCase());
+    if (bestaande) return bestaande.id;
+    const nieuw = { id: crypto.randomUUID(), naam, kleur: kleur || volgendeCategorieKleur(categorieen.length) };
+    categorieen.push(nieuw);
+    return nieuw.id;
+  }
+
+  // Bepaalt welke categorie een nieuw item moet krijgen: eerst kijken of
+  // dit lijstje deze exacte itemnaam al eens een categorie gaf (leert dus
+  // per lijstje, werkt voor elk soort lijstje), anders het ingebouwde
+  // woordenboek proberen (vooral handig voor boodschappen — maakt de
+  // bijbehorende categorie meteen aan als die hier nog niet bestond).
+  // Geeft null terug als er niets te raden viel (item blijft dan
+  // "Overig", tot iemand het zelf een categorie geeft).
+  function raadCategorieId(tekst) {
+    const genormaliseerd = normaliseerTekst(tekst);
+    if (!genormaliseerd) return null;
+    const geleerd = categorieGeschiedenis[genormaliseerd];
+    if (geleerd && vindCategorie(geleerd)) return geleerd;
+    const woordenboeknaam = raadCategorienaamUitWoordenboek(tekst);
+    if (woordenboeknaam) return vindOfMaakCategorie(woordenboeknaam);
+    return null;
+  }
+
+  // ============================================================
+  // Snel toevoegen: favorieten (zelf gekozen, blijven staan) + vaak
+  // toegevoegde items (automatisch geteld). Werkt allebei op de
+  // genormaliseerde tekst, niet op een los item — een favoriet/telling
+  // hoort bij "dit soort item", niet bij dit ene ding dat nu op de lijst
+  // staat (en dat morgen weer is afgevinkt en verwijderd).
+  // ============================================================
+
+  function isFavoriet(tekst) {
+    const genormaliseerd = normaliseerTekst(tekst);
+    return favorieten.some((f) => normaliseerTekst(f.tekst) === genormaliseerd);
+  }
+
+  function toggleFavoriet(tekst) {
+    const genormaliseerd = normaliseerTekst(tekst);
+    if (!genormaliseerd) return;
+    if (isFavoriet(tekst)) {
+      favorieten = favorieten.filter((f) => normaliseerTekst(f.tekst) !== genormaliseerd);
+    } else {
+      favorieten.push({ id: crypto.randomUUID(), tekst: tekst.trim() });
+    }
+  }
+
+  // Eén centrale plek om een nieuw item toe te voegen — gebruikt door zowel
+  // het invulveld bovenaan als de "Snel toevoegen"-chips hieronder, zodat
+  // categorie-gok, favorieten en telling er altijd hetzelfde bij horen.
+  function voegItemToe(tekst) {
+    const schoon = tekst.trim();
+    if (!schoon) return;
+    const item = { id: crypto.randomUUID(), text: schoon, done: false, createdAt: Date.now() };
+    if (getMyName()) item.createdBy = getMyName();
+    const categorieId = raadCategorieId(schoon);
+    if (categorieId) item.categorieId = categorieId;
+    items.push(item);
+    const genormaliseerd = normaliseerTekst(schoon);
+    if (genormaliseerd) {
+      const bestaand = itemFrequentie[genormaliseerd];
+      itemFrequentie[genormaliseerd] = { aantal: (bestaand ? bestaand.aantal : 0) + 1, tekst: schoon };
+    }
+    render();
+    scheduleSave();
+  }
+
+  // Favorieten altijd (in de volgorde die iemand zelf koos), aangevuld met
+  // de meest toegevoegde items die nog geen favoriet zijn — allebei alleen
+  // als dat item niet al openstaat op de lijst (dan heeft "snel toevoegen"
+  // ervan geen zin). Totaal begrensd zodat het rijtje niet uit de hand
+  // loopt bij een lijstje met een lange geschiedenis.
+  function berekenSnelSuggesties() {
+    const actieveTeksten = new Set(
+      items.filter((i) => !i.done).map((i) => normaliseerTekst(i.text))
+    );
+    const favTeksten = new Set();
+    const suggesties = [];
+    favorieten.forEach((f) => {
+      const genormaliseerd = normaliseerTekst(f.tekst);
+      if (!genormaliseerd || actieveTeksten.has(genormaliseerd) || favTeksten.has(genormaliseerd)) return;
+      favTeksten.add(genormaliseerd);
+      suggesties.push({ tekst: f.tekst, favoriet: true });
+    });
+    Object.entries(itemFrequentie)
+      .filter(([genormaliseerd, info]) => info.aantal >= 2 && !actieveTeksten.has(genormaliseerd) && !favTeksten.has(genormaliseerd))
+      .sort((a, b) => b[1].aantal - a[1].aantal)
+      .forEach(([, info]) => {
+        if (suggesties.length >= SNEL_TOEVOEGEN_MAX) return;
+        suggesties.push({ tekst: info.tekst, favoriet: false });
+      });
+    return suggesties.slice(0, SNEL_TOEVOEGEN_MAX);
+  }
+
+  function renderSnelToevoegen() {
+    if (!el.snelToevoegenRij) return;
+    const suggesties = berekenSnelSuggesties();
+    el.snelToevoegenRij.innerHTML = "";
+    el.snelToevoegenRij.hidden = suggesties.length === 0;
+    suggesties.forEach((s) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "snel-chip" + (s.favoriet ? " favoriet" : "");
+      if (s.favoriet) chip.append(document.createTextNode("★ "));
+      chip.append(document.createTextNode(s.tekst));
+      chip.title = `"${s.tekst}" toevoegen`;
+      chip.addEventListener("click", () => voegItemToe(s.tekst));
+      el.snelToevoegenRij.appendChild(chip);
+    });
+  }
+
+  // Iemand kiest zelf (of past aan) de categorie van een item — dat
+  // onthoudt dit lijstje meteen ook voor de volgende keer dat dezelfde
+  // naam wordt toegevoegd.
+  function wijsCategorieToe(item, categorieId) {
+    item.categorieId = categorieId || undefined;
+    const genormaliseerd = normaliseerTekst(item.text);
+    if (genormaliseerd) {
+      if (categorieId) categorieGeschiedenis[genormaliseerd] = categorieId;
+      else delete categorieGeschiedenis[genormaliseerd];
+    }
+  }
+
+  function openCategorieKiezer(item) {
+    // Niet "item" zelf laten vasthouden door de klik-handlers hieronder:
+    // dit menu kan een tijdje open staan (iemand moet nog een keuze maken,
+    // eventueel via een prompt-venster) en in die tussentijd kan een
+    // sync-echo van elders het items-array intussen door een vers
+    // exemplaar hebben vervangen — dan zou je op een verouderd, niet meer
+    // "levend" object zitten te wijzigen. Daarom bij het echt toepassen
+    // van een keuze altijd opnieuw het actuele item bij dit id opzoeken.
+    const itemId = item.id;
+    function actueelItem() {
+      return items.find((i) => i.id === itemId) || null;
+    }
+
+    const opties = categorieen.map((c) => ({ id: c.id, naam: c.naam, kleur: c.kleur }));
+    opties.push({ id: "", naam: "Overig", kleur: "#6b7284" });
+    el.catKiesTitel.textContent = `Categorie voor "${item.text}"`;
+    el.catKiesOpties.innerHTML = "";
+    opties.forEach((opt) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "kies-optie";
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = opt.kleur;
+      btn.append(dot, document.createTextNode(opt.naam));
+      btn.addEventListener("click", () => {
+        const live = actueelItem();
+        if (!live) return;
+        wijsCategorieToe(live, opt.id || null);
+        sluitCategorieMenu();
+        render();
+        scheduleSave();
+      });
+      el.catKiesOpties.appendChild(btn);
+    });
+    const nieuwBtn = document.createElement("button");
+    nieuwBtn.type = "button";
+    nieuwBtn.className = "kies-optie kies-optie-nieuw";
+    nieuwBtn.textContent = "+ Nieuwe categorie…";
+    nieuwBtn.addEventListener("click", () => {
+      const naam = prompt("Naam van de nieuwe categorie?", "");
+      if (!naam || !naam.trim()) return;
+      const live = actueelItem();
+      if (!live) return;
+      const id = vindOfMaakCategorie(naam.trim());
+      wijsCategorieToe(live, id);
+      sluitCategorieMenu();
+      render();
+      scheduleSave();
+    });
+    el.catKiesOpties.appendChild(nieuwBtn);
+    el.catKiesMenu.hidden = false;
+  }
+
+  function sluitCategorieMenu() {
+    if (el.catKiesMenu) el.catKiesMenu.hidden = true;
+  }
+
+  if (el.catKiesMenu) {
+    el.catKiesMenu.addEventListener("click", (e) => {
+      if (e.target === el.catKiesMenu) sluitCategorieMenu();
+    });
+  }
+
+  // "Categorieën beheren" — bewust ergens tuckt weg (niet op het
+  // hoofdscherm): hernoemen, verwijderen, of nieuwe toevoegen, voor dít
+  // lijstje.
+  function openCategorieBeheer() {
+    el.catBeheerLijst.innerHTML = "";
+    if (categorieen.length === 0) {
+      const leeg = document.createElement("p");
+      leeg.className = "hint";
+      leeg.textContent = "Nog geen categorieën voor dit lijstje — maak er hieronder een aan, of het gebeurt vanzelf zodra je een item toevoegt dat het woordenboek herkent.";
+      el.catBeheerLijst.appendChild(leeg);
+    }
+    categorieen.forEach((c) => {
+      // Zelfde reden als bij openCategorieKiezer: dit venster kan een
+      // tijdje open blijven staan terwijl iemand een prompt/confirm-dialoog
+      // beantwoordt, en in die tussentijd kan "categorieen" intussen door
+      // een sync-echo zijn vervangen. Daarom hier ook alleen het id
+      // vasthouden en pas bij het echt toepassen opnieuw opzoeken.
+      const catId = c.id;
+      function actueleCategorie() {
+        return categorieen.find((x) => x.id === catId) || null;
+      }
+
+      const row = document.createElement("div");
+      row.className = "cat-beheer-row";
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = c.kleur;
+      const naam = document.createElement("span");
+      naam.className = "cat-beheer-naam";
+      naam.textContent = c.naam;
+      const hernoemBtn = document.createElement("button");
+      hernoemBtn.type = "button";
+      hernoemBtn.className = "btn-icon";
+      hernoemBtn.textContent = "✏️";
+      hernoemBtn.title = "Hernoemen";
+      hernoemBtn.addEventListener("click", () => {
+        const nieuweNaam = prompt("Nieuwe naam voor deze categorie:", c.naam);
+        if (!nieuweNaam || !nieuweNaam.trim()) return;
+        const live = actueleCategorie();
+        if (!live) return;
+        live.naam = nieuweNaam.trim();
+        openCategorieBeheer();
+        render();
+        scheduleSave();
+      });
+      const verwijderBtn = document.createElement("button");
+      verwijderBtn.type = "button";
+      verwijderBtn.className = "btn-icon";
+      verwijderBtn.textContent = "✕";
+      verwijderBtn.title = "Verwijderen";
+      verwijderBtn.addEventListener("click", () => {
+        if (!confirm(`Categorie "${c.naam}" verwijderen? Items erin gaan naar "Overig".`)) return;
+        const live = actueleCategorie();
+        if (!live) return;
+        categorieen = categorieen.filter((x) => x.id !== catId);
+        items.forEach((it) => { if (it.categorieId === catId) delete it.categorieId; });
+        Object.keys(categorieGeschiedenis).forEach((k) => {
+          if (categorieGeschiedenis[k] === catId) delete categorieGeschiedenis[k];
+        });
+        openCategorieBeheer();
+        render();
+        scheduleSave();
+      });
+      row.append(dot, naam, hernoemBtn, verwijderBtn);
+      el.catBeheerLijst.appendChild(row);
+    });
+    el.catBeheerMenu.hidden = false;
+  }
+
+  if (el.catBeheerAddBtn) {
+    el.catBeheerAddBtn.addEventListener("click", () => {
+      const naam = prompt("Naam van de nieuwe categorie?", "");
+      if (!naam || !naam.trim()) return;
+      vindOfMaakCategorie(naam.trim());
+      openCategorieBeheer();
+      render();
+      scheduleSave();
+    });
+  }
+  if (el.catBeheerCloseBtn) {
+    el.catBeheerCloseBtn.addEventListener("click", () => { el.catBeheerMenu.hidden = true; });
+  }
+  if (el.catBeheerMenu) {
+    el.catBeheerMenu.addEventListener("click", (e) => {
+      if (e.target === el.catBeheerMenu) el.catBeheerMenu.hidden = true;
+    });
+  }
+
+  if (el.catBeheerBtn) {
+    el.catBeheerBtn.addEventListener("click", () => openCategorieBeheer());
+  }
+
+  function buildItemRow(item, { showMoveButtons, showPinButton }) {
     const li = document.createElement("li");
     li.className = item.done ? "done" : "";
     li.dataset.id = item.id;
@@ -1407,7 +1620,7 @@ function start() {
       const wordtAfgevinkt = !item.done && checkbox.checked;
       item.done = checkbox.checked;
       if (item.done) {
-        if (myName) item.doneBy = myName;
+        if (getMyName()) item.doneBy = getMyName();
         // Afgevinkt = klaar: een eventueel "bezig"-seintje is dan niet meer
         // relevant, dus dat gaat er meteen af.
         delete item.bezig;
@@ -1440,6 +1653,24 @@ function start() {
 
     row.append(check, text);
 
+    // Favoriet-knopje: dit item (op tekst, niet op dit ene exemplaar) altijd
+    // laten meedoen bij "Snel toevoegen" hierboven, ook nadat het is
+    // afgevinkt/verwijderd — precies daarom werkt dit op de tekst, niet op
+    // een los item-id.
+    const favBtn = document.createElement("button");
+    favBtn.type = "button";
+    const isFav = isFavoriet(item.text);
+    favBtn.className = "fav-btn" + (isFav ? " active" : "");
+    favBtn.textContent = isFav ? "★" : "☆";
+    favBtn.title = isFav ? "Favoriet af (niet meer bij Snel toevoegen)" : "Favoriet maken (altijd bij Snel toevoegen)";
+    favBtn.setAttribute("aria-label", `${item.text} ${isFav ? "als favoriet afhalen" : "favoriet maken"}`);
+    favBtn.addEventListener("click", () => {
+      toggleFavoriet(item.text);
+      render();
+      scheduleSave();
+    });
+    row.append(favBtn);
+
     // "Bezig"-knop: los van het vinkje hierboven (dat blijft gewoon
     // open/afgevinkt) — een extra seintje dat iemand hier al mee bezig is,
     // met optioneel een kort notitietje. Niet nodig meer zodra het item al
@@ -1463,7 +1694,7 @@ function start() {
         if (notitie === null) return; // geannuleerd: niks aanpassen
         item.bezig = true;
         item.bezigNotitie = notitie.trim() || null;
-        if (myName) item.bezigDoor = myName;
+        if (getMyName()) item.bezigDoor = getMyName();
         else delete item.bezigDoor;
       }
       render();
@@ -1472,28 +1703,21 @@ function start() {
     row.append(bezigBtn);
 
     if (showMoveButtons) {
-      const moveWrap = document.createElement("span");
-      moveWrap.className = "move-buttons";
+      const handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = "drag-handle";
+      handle.textContent = "⠿";
+      handle.title = "Verslepen om te verplaatsen";
+      handle.setAttribute("aria-label", `${item.text} verslepen om te verplaatsen`);
+      handle.addEventListener("pointerdown", (e) => startSlepen(e, item.id, !!item.pinned));
+      row.append(handle);
+    }
 
-      const upBtn = document.createElement("button");
-      upBtn.type = "button";
-      upBtn.className = "move-btn";
-      upBtn.textContent = "↑";
-      upBtn.disabled = isFirstActive;
-      upBtn.setAttribute("aria-label", `${item.text} naar boven verplaatsen`);
-      upBtn.addEventListener("click", () => moveItem(item.id, -1));
-
-      const downBtn = document.createElement("button");
-      downBtn.type = "button";
-      downBtn.className = "move-btn";
-      downBtn.textContent = "↓";
-      downBtn.disabled = isLastActive;
-      downBtn.setAttribute("aria-label", `${item.text} naar beneden verplaatsen`);
-      downBtn.addEventListener("click", () => moveItem(item.id, 1));
-
-      moveWrap.append(upBtn, downBtn);
-      row.append(moveWrap);
-
+    // Los van de ↑↓-knoppen: bij "groeperen op categorie" aan verbergen we
+    // de handmatige volgorde-knoppen (die zouden dwars door de categorieën
+    // heen gaan), maar vastpinnen blijft altijd gewoon mogelijk voor een
+    // openstaand item.
+    if (showPinButton ?? showMoveButtons) {
       const pinBtn = document.createElement("button");
       pinBtn.type = "button";
       pinBtn.className = "pin-btn" + (item.pinned ? " active" : "");
@@ -1517,6 +1741,25 @@ function start() {
     row.append(del);
 
     li.append(row);
+
+    // Categorie-label — altijd te zien en aan te passen voor een
+    // openstaand item, ongeacht of er gegroepeerd wordt weergegeven.
+    // Ná de rij zelf (net als het "bezig"-regeltje hieronder).
+    if (!item.done) {
+      const cat = vindCategorie(item.categorieId);
+      const pill = document.createElement("button");
+      pill.type = "button";
+      pill.className = "cat-pill";
+      pill.style.background = (cat ? cat.kleur : "#6b7284") + "22";
+      pill.style.color = cat ? cat.kleur : "#6b7284";
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = cat ? cat.kleur : "#6b7284";
+      pill.append(dot, document.createTextNode(cat ? cat.naam : "Overig"));
+      pill.title = "Categorie aanpassen";
+      pill.addEventListener("click", () => openCategorieKiezer(item));
+      li.append(pill);
+    }
 
     // Regeltje bij "bezig": notitie + naam als er allebei zijn, anders wat
     // er wél is (alleen de naam, of alleen de notitie als er (nog) geen
@@ -1575,6 +1818,7 @@ function start() {
   function render() {
     el.list.innerHTML = "";
     el.emptyHint.hidden = items.length > 0;
+    renderSnelToevoegen();
 
     const active = items.filter((i) => !i.done);
     const done = items.filter((i) => i.done);
@@ -1588,25 +1832,34 @@ function start() {
       el.list.appendChild(pinHeader);
     }
 
-    pinnedActive.forEach((item, i) => {
-      el.list.appendChild(
-        buildItemRow(item, {
-          isFirstActive: i === 0,
-          isLastActive: i === pinnedActive.length - 1,
-          showMoveButtons: true,
-        })
-      );
+    pinnedActive.forEach((item) => {
+      el.list.appendChild(buildItemRow(item, { showMoveButtons: true }));
     });
 
-    normalActive.forEach((item, i) => {
-      el.list.appendChild(
-        buildItemRow(item, {
-          isFirstActive: i === 0,
-          isLastActive: i === normalActive.length - 1,
-          showMoveButtons: true,
-        })
-      );
-    });
+    if (groeperenOpCategorie && normalActive.length > 0) {
+      // Gegroepeerd: per categorie (in de volgorde van dit lijstje se
+      // eigen categorieën, "Overig" als laatste) een kopje + de items
+      // erin. Handmatig verslepen zetten we dan uit (zou dwars door de
+      // groepen heen gaan); vastpinnen blijft gewoon werken.
+      const groepen = [...categorieen, null].map((c) => ({
+        cat: c,
+        its: normalActive.filter((i) => (c ? i.categorieId === c.id : !vindCategorie(i.categorieId))),
+      })).filter((g) => g.its.length > 0);
+
+      groepen.forEach((g) => {
+        const header = document.createElement("li");
+        header.className = "list-divider";
+        header.textContent = `${g.cat ? g.cat.naam : "Overig"} (${g.its.length})`;
+        el.list.appendChild(header);
+        g.its.forEach((item) => {
+          el.list.appendChild(buildItemRow(item, { showMoveButtons: false, showPinButton: true }));
+        });
+      });
+    } else {
+      normalActive.forEach((item) => {
+        el.list.appendChild(buildItemRow(item, { showMoveButtons: true }));
+      });
+    }
 
     if (active.length > 0 && done.length > 0) {
       const divider = document.createElement("li");
@@ -1831,12 +2084,8 @@ function start() {
     e.preventDefault();
     const text = el.newItem.value.trim();
     if (!text) return;
-    const item = { id: crypto.randomUUID(), text, done: false, createdAt: Date.now() };
-    if (myName) item.createdBy = myName;
-    items.push(item);
+    voegItemToe(text);
     el.newItem.value = "";
-    render();
-    scheduleSave();
   });
 
   el.shareBtn.addEventListener("click", async () => {
@@ -1862,6 +2111,122 @@ function start() {
       prompt("Deel deze link met je gezin:", url);
     }
   });
+
+  // ============================================================
+  // Pushmeldingen — los van (en boven op) de gewone realtime-sync
+  // hierboven: die werkt alleen zolang de app op de achtergrond of
+  // voorgrond open staat, dit geeft een melding op het toestel zelf, ook
+  // als de app helemaal niet open is. Werkt per TOESTEL, niet per
+  // lijstje: elk toestel meldt een eigen "token" aan bij het gezinnetje
+  // (in het gedeelde document zelf, náást de lijsten), en een Cloud
+  // Function (zie functions/index.js in dit project — moet Bob apart,
+  // eenmalig zelf deployen, zie README.md) stuurt bij een nieuw item een
+  // melding naar alle aangemelde toestellen.
+  //
+  // Bewust verborgen (via el.pushSection.hidden) tot: (a) de browser dit
+  // ondersteunt (isSupported()) — Firefox op iPhone bijvoorbeeld niet, en
+  // (b) er een vapidKey in config.js staat (zonder Cloud Messaging
+  // ingesteld in Firebase zou de knop toch nooit kunnen werken).
+  // ============================================================
+  const PUSH_TOKEN_KEY = "boodschappenlijst:push-token";
+
+  function huidigPushToken() {
+    try { return localStorage.getItem(PUSH_TOKEN_KEY); } catch (e) { return null; }
+  }
+
+  function bewaarPushToken(token) {
+    try {
+      if (token) localStorage.setItem(PUSH_TOKEN_KEY, token);
+      else localStorage.removeItem(PUSH_TOKEN_KEY);
+    } catch (e) { /* niet erg, dan onthoudt dit toestel het gewoon niet */ }
+  }
+
+  function updatePushKnop() {
+    if (!el.pushBtn) return;
+    const aan = !!huidigPushToken();
+    el.pushBtn.textContent = `Pushmeldingen: ${aan ? "aan" : "uit"}`;
+    el.pushBtn.classList.toggle("active", aan);
+  }
+
+  // Los van de gewone lijst-opslag hierboven (saveHousehold/saveList):
+  // tokens hebben niets te maken met de inhoud van een lijstje, dus een
+  // eigen kleine transactie die verder niets aan lijsten/archief/
+  // grafstenen verandert, wat die ook op dat moment waren.
+  async function voegPushTokenToe(token) {
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(householdRef);
+      const server = snap.exists() ? snap.data() : {};
+      const zonderDitToken = (server.pushTokens || []).filter((t) => t.token !== token);
+      zonderDitToken.push({ token, bijgewerktOp: Date.now() });
+      transaction.set(householdRef, { ...server, pushTokens: zonderDitToken });
+    });
+  }
+
+  async function verwijderPushToken(token) {
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(householdRef);
+      const server = snap.exists() ? snap.data() : {};
+      const zonderDitToken = (server.pushTokens || []).filter((t) => t.token !== token);
+      transaction.set(householdRef, { ...server, pushTokens: zonderDitToken });
+    });
+  }
+
+  async function zetPushMeldingenAan() {
+    try {
+      const permissie = await Notification.requestPermission();
+      if (permissie !== "granted") {
+        alert("Zonder toestemming voor meldingen kan dit toestel geen pushmeldingen krijgen. Je kunt dit later alsnog toestaan via de site-instellingen van je browser.");
+        return;
+      }
+      const swRegistratie = await navigator.serviceWorker.ready;
+      const messaging = getMessaging(firebaseApp);
+      const token = await getToken(messaging, {
+        vapidKey: CONFIG.vapidKey,
+        serviceWorkerRegistration: swRegistratie,
+      });
+      if (!token) {
+        alert("Kon geen pushmeldingen-token krijgen. Probeer het later nog eens.");
+        return;
+      }
+      await voegPushTokenToe(token);
+      bewaarPushToken(token);
+      updatePushKnop();
+      // Meldingen terwijl de app op de voorgrond openstaat komen hier
+      // binnen (i.p.v. als systeemmelding) — gewoon als toastje laten
+      // zien, dan blijft het rustig als je toch al aan het kijken bent.
+      onMessage(messaging, (payload) => {
+        showToast((payload.notification && payload.notification.body) || "Er is iets nieuws toegevoegd");
+      });
+    } catch (e) {
+      console.error("Pushmeldingen aanzetten is niet gelukt:", e);
+      alert("Pushmeldingen aanzetten is niet gelukt. Zie de console voor details.");
+    }
+  }
+
+  async function zetPushMeldingenUit() {
+    const token = huidigPushToken();
+    try {
+      const messaging = getMessaging(firebaseApp);
+      if (token) await deleteToken(messaging).catch(() => {});
+      if (token) await verwijderPushToken(token);
+    } catch (e) {
+      console.error("Pushmeldingen uitzetten ging niet helemaal goed (lokaal wel uitgezet):", e);
+    }
+    bewaarPushToken(null);
+    updatePushKnop();
+  }
+
+  if (el.pushSection && CONFIG.vapidKey && CONFIG.vapidKey !== "VUL-HIER-IN") {
+    pushWordtOndersteund().then((ondersteund) => {
+      if (!ondersteund) return; // bijv. Firefox/Safari op iPhone
+      el.pushSection.hidden = false;
+      updatePushKnop();
+      el.pushBtn.addEventListener("click", () => {
+        if (huidigPushToken()) zetPushMeldingenUit();
+        else zetPushMeldingenAan();
+      });
+    });
+  }
 }
 
 // --- Service worker (PWA) ---
