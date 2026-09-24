@@ -1,7 +1,6 @@
 // Verifieert het verslepen van items om ze te herordenen (in plaats van de
 // oude ↑/↓-knoppen): met de muis vastpakken bij het handvatje (⠿) en naar
-// een andere plek slepen, binnen dezelfde groep (open/vastgepind), en dat
-// dit niet dwars door "groeperen op categorie" heen werkt.
+// een andere plek slepen, binnen dezelfde groep (open/vastgepind).
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -93,21 +92,12 @@ async function volgordeVan(page) {
   const naHerladen = await volgordeVan(page);
   check("V6. Nieuwe volgorde blijft na herladen behouden", JSON.stringify(naHerladen) === JSON.stringify(naVerslepen));
 
-  // --- Vastgepinde items vormen een eigen groep ---
+  // --- Vastgepinde items vormen een eigen groep --- (de pin-knop zit
+  // achter het "⋯"-actiemenu van het item, dus dat moet eerst open).
+  await page.click('li[data-id]:has-text("Vier") .item-menu-btn');
   await page.click('li[data-id]:has-text("Vier") .pin-btn');
   await page.waitForTimeout(100);
   check("V7. Vastgepind item staat los van de normale volgorde (aparte groep)", (await page.textContent("#list")).indexOf("📌 Vastgepind") < (await page.textContent("#list")).indexOf("Vier"));
-
-  // --- Bij groeperen op categorie verdwijnen de handvatten voor de
-  // niet-vastgepinde items (vastpinnen blijft altijd gewoon werken, ook
-  // gegroepeerd — dat gold al net zo voor de oude pijltjes). Op dit punt
-  // is "Vier" vastgepind, dus die houdt als enige nog een handvat.
-  await page.click("#groep-btn");
-  await page.waitForTimeout(100);
-  check("V8. Bij groeperen op categorie heeft alleen het vastgepinde item nog een sleep-handvat", (await page.$$(".drag-handle")).length === 1);
-  await page.click("#groep-btn");
-  await page.waitForTimeout(100);
-  check("V9. Na groeperen weer uit staan de handvatten er weer", (await page.$$(".drag-handle")).length > 0);
 
   check("Geen JS-fouten opgetreden tijdens deze hele test", jsErrors.length === 0);
   if (jsErrors.length) console.log(jsErrors);

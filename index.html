@@ -106,14 +106,6 @@
       </div>
     </div>
 
-    <div class="settings-section">
-      <p class="settings-section-title">📱 Weergave</p>
-      <p class="settings-section-hint" id="compact-hint">Items iets krapper op elkaar, zodat er meer op één scherm past — alleen op dit toestel.</p>
-      <div class="settings-section-actions">
-        <button id="compact-btn" class="btn btn-ghost btn-small" type="button">Compacte weergave: uit</button>
-      </div>
-    </div>
-
     <div class="settings-section" id="push-section" hidden>
       <p class="settings-section-title">🔔 Pushmeldingen</p>
       <p class="settings-section-hint" id="push-hint">Krijg een melding op dit toestel zodra iemand anders iets toevoegt aan een gedeeld lijstje.</p>
@@ -131,6 +123,7 @@
             <li><strong>✅ Afvinken</strong> — klaar? Vink het aan. Per ongeluk? Vink het weer uit, of gebruik het "Ongedaan maken"-knopje dat even in beeld komt.</li>
             <li><strong>✕ Verwijderen</strong> — het item gaat 30 dagen naar het archief (🗄️-knop hierboven), waar je het nog kunt terugzetten of meteen definitief kunt verwijderen.</li>
             <li><strong>⠿ Volgorde</strong> — pak een openstaand item vast bij het handvatje en sleep het naar de gewenste plek (met muis of vinger).</li>
+            <li><strong>⋯ Meer acties</strong> — vastpinnen, "bezig" zetten, favoriet maken en verwijderen zitten achter dit knopje bij elk item.</li>
             <li><strong>📌 Vastpinnen</strong> — houdt een belangrijk item altijd bovenaan, ongeacht de volgorde.</li>
             <li><strong>🕐 Bezig</strong> — laat zien dat iemand hier al mee bezig is (bijv. al gebeld, maar nog geen reactie), los van het vinkje. Mag met een kort notitietje; laat je dat leeg, dan staat gewoon jouw naam erbij. Verdwijnt vanzelf zodra het item wordt afgevinkt.</li>
             <li><strong>★ Favoriet</strong> — zet een item op je vaste "Snel toevoegen"-rijtje boven de lijst, ook nadat je 'm hebt afgevinkt en verwijderd. Items die je vaak genoeg toevoegt, verschijnen daar trouwens ook vanzelf bij, zonder dat je ze apart hoeft te markeren.</li>
@@ -151,11 +144,6 @@
       <input id="new-item" type="text" placeholder="Nieuw item..." autocomplete="off" />
       <button type="submit" class="btn btn-primary">Toevoegen</button>
     </form>
-
-    <div class="cat-toprow">
-      <button id="groep-btn" class="btn btn-ghost btn-small" type="button">Groeperen op categorie: uit</button>
-      <button id="cat-beheer-btn" class="btn btn-ghost btn-small" type="button">Categorieën beheren</button>
-    </div>
 
     <div id="snel-toevoegen-rij" class="snel-rij" hidden></div>
 
@@ -183,24 +171,6 @@
   <div id="toast" class="toast" hidden>
     <span id="toast-text"></span>
     <button id="toast-undo-btn" class="btn btn-ghost btn-small" type="button">Ongedaan maken</button>
-  </div>
-
-  <div id="cat-kies-menu" class="kies-menu" hidden>
-    <div class="kies-kaart">
-      <h3 id="cat-kies-titel">Categorie kiezen</h3>
-      <div id="cat-kies-opties"></div>
-    </div>
-  </div>
-
-  <div id="cat-beheer-menu" class="kies-menu" hidden>
-    <div class="kies-kaart">
-      <div class="kies-kaart-header">
-        <h3>Categorieën beheren</h3>
-        <button id="cat-beheer-close-btn" class="btn-icon" type="button" title="Sluiten">✕</button>
-      </div>
-      <div id="cat-beheer-lijst"></div>
-      <button id="cat-beheer-add-btn" class="btn btn-ghost btn-small" type="button" style="margin-top: 10px;">+ Nieuwe categorie</button>
-    </div>
   </div>
 
   <script src="./config.js"></script>

@@ -29,6 +29,13 @@ function check(label, cond) {
   if (cond) pass++; else fail++;
 }
 
+// Favoriet/verwijderen zitten achter het "⋯"-actiemenu van het item, dus
+// dat moet steeds eerst open (er staat in deze test steeds maar één item
+// op de lijst, dus het eerste actiemenu-knopje is ondubbelzinnig).
+async function openItemMenu(page) {
+  await page.click(".item-menu-btn");
+}
+
 (async () => {
   const server = makeServer(ROOT);
   await new Promise((resolve) => server.listen(0, resolve));
@@ -49,6 +56,7 @@ function check(label, cond) {
   await page.fill("#new-item", "Afwasmiddel");
   await page.click("button[type=submit]");
   await page.waitForTimeout(100);
+  await openItemMenu(page);
   await page.click(".fav-btn");
   await page.waitForTimeout(100);
   check("W2. Ster-knopje staat op actief na klikken", await page.locator(".fav-btn").first().evaluate((b) => b.classList.contains("active")));
@@ -56,6 +64,7 @@ function check(label, cond) {
   // Item afvinken + verwijderen: favoriet moet blijven bestaan (zit op de tekst, niet op dit item)
   await page.click(".check input");
   await page.waitForTimeout(100);
+  await openItemMenu(page);
   await page.click(".delete-btn");
   await page.waitForTimeout(400);
   check("W3. Favoriet verschijnt als chip zodra het item niet meer openstaat", (await page.textContent("#snel-toevoegen-rij")).includes("Afwasmiddel"));
@@ -68,11 +77,13 @@ function check(label, cond) {
   check("W6. De chip verdwijnt zodra het item alweer openstaat", !(await page.textContent("#snel-toevoegen-rij")).includes("Afwasmiddel"));
 
   // --- Automatisch leren: 2x hetzelfde toevoegen (en weer verwijderen) laat het vanzelf verschijnen ---
+  await openItemMenu(page);
   await page.click(".delete-btn"); // "Afwasmiddel" weer weg, telt niet mee voor deze nieuwe naam
   await page.waitForTimeout(400);
   await page.fill("#new-item", "Vuilniszakken");
   await page.click("button[type=submit]");
   await page.waitForTimeout(100);
+  await openItemMenu(page);
   await page.click(".delete-btn");
   await page.waitForTimeout(400);
   check("W7. Na 1x toevoegen nog geen automatische suggestie", !(await page.textContent("#snel-toevoegen-rij")).includes("Vuilniszakken"));
@@ -80,6 +91,7 @@ function check(label, cond) {
   await page.fill("#new-item", "Vuilniszakken");
   await page.click("button[type=submit]");
   await page.waitForTimeout(100);
+  await openItemMenu(page);
   await page.click(".delete-btn");
   await page.waitForTimeout(400);
   check("W8. Na 2x toevoegen verschijnt het vanzelf als suggestie", (await page.textContent("#snel-toevoegen-rij")).includes("Vuilniszakken"));
@@ -88,6 +100,7 @@ function check(label, cond) {
   await page.fill("#new-item", "Afwasmiddel");
   await page.click("button[type=submit]");
   await page.waitForTimeout(100);
+  await openItemMenu(page);
   await page.click(".fav-btn");
   await page.waitForTimeout(100);
   check("W9. Ster-knopje weer uit na nogmaals klikken", !(await page.locator(".fav-btn").first().evaluate((b) => b.classList.contains("active"))));

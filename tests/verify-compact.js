@@ -1,6 +1,5 @@
-// Verifieert de nieuwe "Compacte weergave"-knop in Instellingen: een
-// eigen keuze van de gebruiker (aan/uit), niet iets dat vanzelf verandert
-// naarmate de lijst groeit, en blijft staan na herladen.
+// Verifieert dat de compacte weergave nu gewoon de vaste, standaard
+// weergave is (geen los aan/uit-knopje meer in Instellingen).
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -49,26 +48,15 @@ function check(label, cond) {
     await page.waitForTimeout(80);
   }
 
-  check("Z1. Standaard staat compacte weergave uit", !(await page.$eval("#list", (el) => el.classList.contains("compact"))));
+  check("Z1. Compacte weergave staat standaard aan", await page.$eval("#list", (el) => el.classList.contains("compact")));
 
   await page.click("#settings-btn");
   await page.waitForSelector("#settings-panel:not([hidden])");
-  check("Z2. De knop toont 'uit' als starttekst", (await page.textContent("#compact-btn")).includes("uit"));
-
-  await page.click("#compact-btn");
-  await page.waitForTimeout(80);
-  check("Z3. Na klikken staat #list op compact", await page.$eval("#list", (el) => el.classList.contains("compact")));
-  check("Z4. De knoptekst wisselt mee naar 'aan'", (await page.textContent("#compact-btn")).includes("aan"));
+  check("Z2. Geen los 'Compacte weergave'-knopje meer in Instellingen", (await page.$("#compact-btn")) === null);
 
   await page.reload();
   await page.waitForSelector("#app:not([hidden])");
-  check("Z5. Blijft aan staan na herladen", await page.$eval("#list", (el) => el.classList.contains("compact")));
-
-  await page.click("#settings-btn");
-  await page.waitForSelector("#settings-panel:not([hidden])");
-  await page.click("#compact-btn");
-  await page.waitForTimeout(80);
-  check("Z6. Weer uitzetten werkt ook", !(await page.$eval("#list", (el) => el.classList.contains("compact"))));
+  check("Z3. Blijft aan staan na herladen", await page.$eval("#list", (el) => el.classList.contains("compact")));
 
   check("Geen JS-fouten opgetreden tijdens deze test", jsErrors.length === 0);
   if (jsErrors.length) console.log(jsErrors);
