@@ -68,6 +68,7 @@ async function openListsPanel(page) {
     await page.click("button[type=submit]");
     await page.waitForTimeout(150);
 
+    await page.click("#list li .item-menu-btn");
     await page.click("#list li .delete-btn");
     await page.waitForTimeout(500);
     check("I1. Verwijderd item verdwijnt uit de lijst", !(await page.textContent("#list")).includes("Melk halen"));

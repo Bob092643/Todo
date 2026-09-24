@@ -649,10 +649,10 @@ main {
   background: none;
   border: none;
   color: var(--muted);
-  font-size: 1.1rem;
+  font-size: 1.25rem;
   line-height: 1;
   cursor: grab;
-  padding: 9px 8px;
+  padding: 11px 10px;
   border-radius: 8px;
   touch-action: none;
   transition: color 0.15s ease, background 0.15s ease;
@@ -832,12 +832,6 @@ main {
     background: rgba(229, 169, 42, 0.16);
     color: var(--warning);
   }
-}
-
-.delete-btn {
-  /* Extra ruimte tot het pin-knopje ernaast — dat scheelt bij per ongeluk
-     de verkeerde (destructieve!) knop raken op een klein scherm. */
-  margin-left: 6px;
 }
 
 .item-meta {
@@ -1020,6 +1014,94 @@ main {
   background: rgba(229, 72, 77, 0.1);
 }
 
+/* "⋯"-actiemenu per item — favoriet/bezig/vastpinnen/verwijderen zaten
+   eerst allemaal los naast elkaar (te veel knopjes op één regel), en staan
+   nu achter dit ene overzichtelijke knopje. */
+.item-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.item-menu-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 9px 10px;
+  border-radius: 8px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.item-menu-btn:hover {
+  color: var(--blue-600);
+  background: var(--blue-50);
+}
+
+.item-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 210px;
+  margin-top: 4px;
+  padding: 6px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.item-menu[hidden] {
+  display: none;
+}
+
+.item-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 10px;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  opacity: 1;
+  filter: none;
+}
+
+.item-menu button:hover {
+  background: var(--blue-50);
+}
+
+.item-menu .fav-btn.active,
+.item-menu .bezig-btn.active,
+.item-menu .pin-btn.active {
+  color: #a67312;
+  background: rgba(229, 169, 42, 0.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  .item-menu .fav-btn.active,
+  .item-menu .bezig-btn.active,
+  .item-menu .pin-btn.active {
+    color: var(--warning);
+  }
+}
+
+.item-menu .delete-btn:hover {
+  color: var(--danger);
+  background: rgba(229, 72, 77, 0.1);
+}
+
 .hint {
   color: var(--muted);
   font-size: 0.92rem;
@@ -1118,35 +1200,10 @@ code {
   * { animation: none !important; transition: none !important; }
 }
 
-/* ============================================================
-   Categorieën
-   ============================================================ */
-.cat-toprow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 4px 0 14px;
-}
-
-#groep-btn.active,
 #push-btn.active {
   background: var(--blue-50);
   color: var(--blue-600);
   border-color: var(--blue-500);
-}
-
-.cat-pill {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 8px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 0.76rem;
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
 }
 
 /* "Snel toevoegen"-rijtje boven de lijst: favorieten + vaak toegevoegde
@@ -1182,103 +1239,3 @@ code {
   border-color: rgba(229, 169, 42, 0.5);
 }
 
-.cat-pill .dot,
-.kies-optie .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  display: inline-block;
-}
-
-/* Onderaan uitschuivend keuzemenu (categorie kiezen, categorieën
-   beheren) — dezelfde soort kaart-op-overlay als je in het voorbeeldje
-   zag, nu ingebouwd in de echte app. */
-.kies-menu {
-  position: fixed;
-  inset: 0;
-  background: rgba(10, 12, 20, 0.4);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  z-index: 30;
-}
-
-/* Zelfde reden als bij .archive-panel[hidden]: zonder deze regel wint
-   "display: flex" hierboven (zelfde specificiteit als het [hidden] van de
-   browser zelf) en blijft dit overlay-menu onzichtbaar ÉN ONTASTBAAR
-   scherm-vullend intercepten van tikken/klikken, ook terwijl het
-   "hidden"-attribuut aan staat. */
-.kies-menu[hidden] {
-  display: none;
-}
-
-.kies-kaart {
-  background: var(--card);
-  width: 100%;
-  max-width: 480px;
-  max-height: 70vh;
-  overflow-y: auto;
-  border-radius: 18px 18px 0 0;
-  padding: 16px;
-  box-shadow: var(--shadow);
-}
-
-.kies-kaart h3 {
-  margin: 0 0 10px;
-  font-size: 0.95rem;
-}
-
-.kies-kaart-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
-}
-
-.kies-kaart-header h3 {
-  margin: 0;
-}
-
-.kies-optie {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  text-align: left;
-  padding: 10px 8px;
-  border-radius: 10px;
-  border: none;
-  background: none;
-  font-size: 0.92rem;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.kies-optie:hover {
-  background: var(--blue-50);
-}
-
-.kies-optie-nieuw {
-  color: var(--blue-600);
-  font-weight: 600;
-}
-
-.cat-beheer-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 4px;
-  border-bottom: 1px solid var(--border);
-}
-
-.cat-beheer-row:last-child {
-  border-bottom: none;
-}
-
-.cat-beheer-naam {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: break-word;
-  font-size: 0.92rem;
-}
