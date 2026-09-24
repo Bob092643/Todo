@@ -436,6 +436,41 @@ h1, .brand {
   font-size: 0.9rem;
 }
 
+/* Zelfde opklap-truukje als bij "Dit lijstje verwijderen…", maar dan
+   neutraal (geen rode gevarenkleur) — voor de uitleg-tekst die niet
+   iedere keer meteen in beeld hoeft te staan. */
+.info-toggle {
+  margin-top: 4px;
+}
+
+.info-toggle summary::-webkit-details-marker {
+  display: none;
+}
+
+.info-toggle-summary {
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 6px 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.info-toggle-summary:hover {
+  color: var(--blue-600);
+}
+
+.info-toggle-chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.info-toggle[open] .info-toggle-chevron {
+  transform: rotate(90deg);
+}
+
 .danger-zone-hint {
   margin: 0 0 10px;
   color: var(--muted);
@@ -527,6 +562,24 @@ main {
   font-size: 0.8rem;
 }
 
+/* De "Kies kleur"-knop is een <label> (zie index.html) i.p.v. een <button>,
+   dus die krijgt zelf geen passende display/uitlijning van .btn — dat hier
+   alsnog geven. */
+.color-btn-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  user-select: none;
+}
+
+.color-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
+}
+
 .list {
   list-style: none;
   margin: 0;
@@ -545,6 +598,27 @@ main {
   padding: 14px 14px;
   box-shadow: var(--shadow);
   transition: opacity 0.25s ease, transform 0.25s ease, background 0.15s ease;
+}
+
+/* Compacte weergave — een eigen keuze (aan/uit-knopje in Instellingen),
+   niet iets dat vanzelf verandert naarmate de lijst groeit. Alleen op de
+   hoofdlijst (#list), niet in het archief of het ☰-paneel. */
+#list.compact {
+  gap: 6px;
+}
+
+#list.compact li {
+  padding: 9px 10px;
+  border-radius: 11px;
+}
+
+#list.compact .item-row {
+  gap: 8px;
+}
+
+#list.compact .check {
+  width: 20px;
+  height: 20px;
 }
 
 .item-row {
@@ -566,32 +640,36 @@ main {
   letter-spacing: 0.04em;
 }
 
-.move-buttons {
-  display: flex;
+/* Versleep-handvat — vervangt de oude ↑/↓-knoppen: pak 'm vast en sleep
+   naar de gewenste plek, met muis of vinger. "touch-action: none" is hier
+   nodig zodat een vinger op dit handvat niet in plaats daarvan het scherm
+   laat scrollen. */
+.drag-handle {
   flex-shrink: 0;
-  gap: 4px;
-}
-
-.move-btn {
   background: none;
   border: none;
   color: var(--muted);
-  font-size: 1rem;
+  font-size: 1.1rem;
   line-height: 1;
-  cursor: pointer;
+  cursor: grab;
   padding: 9px 8px;
   border-radius: 8px;
-  transition: color 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+  touch-action: none;
+  transition: color 0.15s ease, background 0.15s ease;
 }
 
-.move-btn:hover:not(:disabled) {
+.drag-handle:hover {
   color: var(--blue-600);
   background: var(--blue-50);
 }
 
-.move-btn:disabled {
-  opacity: 0.25;
-  cursor: default;
+.list li.slepen {
+  position: relative;
+  z-index: 5;
+  cursor: grabbing;
+  box-shadow: var(--shadow);
+  background: var(--card);
+  border-radius: 12px;
 }
 
 .item-stale {
@@ -657,6 +735,41 @@ main {
   opacity: 1;
   background: var(--blue-50);
   border-color: var(--blue-500);
+}
+
+/* Favoriet-knopje (★/☆) — werkt op de itemtekst, niet op dit ene
+   exemplaar: staat er dus ook nog steeds hetzelfde bij als het item al is
+   afgevinkt. */
+.fav-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid transparent;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 9px 9px;
+  border-radius: 8px;
+  color: var(--muted);
+  opacity: 0.55;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.fav-btn:hover {
+  opacity: 0.85;
+  background: var(--blue-50);
+}
+
+.fav-btn.active {
+  opacity: 1;
+  color: #a67312;
+  background: rgba(229, 169, 42, 0.14);
+  border-color: var(--warning);
+}
+
+@media (prefers-color-scheme: dark) {
+  .fav-btn.active {
+    color: var(--warning);
+  }
 }
 
 /* "Bezig"-knop bij een item — los van het vinkje (open/afgevinkt): een
@@ -732,6 +845,10 @@ main {
   padding: 0 2px;
   color: var(--muted);
   font-size: 0.75rem;
+}
+
+.info-content {
+  margin-top: 8px;
 }
 
 .info-content p {
@@ -875,9 +992,15 @@ main {
      (met de bredere knoppen "Terugzetten"/"Verwijder definitief" ernaast
      op een smal schermpje) leidde dat ertoe dat de tekst tot bijna 0px
      breedte in elkaar gedrukt werd en daardoor letter voor letter onder
-     elkaar kwam te staan in plaats van gewoon netjes af te breken. */
+     elkaar kwam te staan in plaats van gewoon netjes af te breken.
+     "word-break: break-word" is een oude, niet-standaard eigenschap die
+     Firefox anders interpreteert dan Chrome/Safari bij het berekenen van
+     de minimale breedte van een flex-kind — juist dat verschil kon in
+     Firefox alsnog tot dezelfde letter-voor-letter opstapeling leiden.
+     "overflow-wrap: break-word" is de standaard vervanger en gedraagt
+     zich in alle browsers hetzelfde. */
   min-width: 0;
-  word-break: break-word;
+  overflow-wrap: break-word;
   transition: color 0.15s ease;
 }
 
@@ -945,6 +1068,9 @@ main {
 .status-dot.synced { background: var(--success); }
 .status-dot.saving { background: var(--warning); animation: pulse 1s ease-in-out infinite; }
 .status-dot.error { background: var(--danger); }
+/* Bewust geen rood/oranje "foutkleurtje" — offline zijn is niets mis mee,
+   dus dat moet er ook geruststellend uitzien, niet als een storing. */
+.status-dot.offline { background: var(--muted); }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
@@ -990,4 +1116,169 @@ code {
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
+}
+
+/* ============================================================
+   Categorieën
+   ============================================================ */
+.cat-toprow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+
+#groep-btn.active,
+#push-btn.active {
+  background: var(--blue-50);
+  color: var(--blue-600);
+  border-color: var(--blue-500);
+}
+
+.cat-pill {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+}
+
+/* "Snel toevoegen"-rijtje boven de lijst: favorieten + vaak toegevoegde
+   items, één tik erop en het staat op de lijst. */
+.snel-rij {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -6px 0 14px;
+}
+
+.snel-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.snel-chip:hover {
+  background: var(--blue-50);
+  border-color: var(--blue-500);
+}
+
+.snel-chip.favoriet {
+  color: #a67312;
+  border-color: rgba(229, 169, 42, 0.5);
+}
+
+.cat-pill .dot,
+.kies-optie .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+/* Onderaan uitschuivend keuzemenu (categorie kiezen, categorieën
+   beheren) — dezelfde soort kaart-op-overlay als je in het voorbeeldje
+   zag, nu ingebouwd in de echte app. */
+.kies-menu {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 20, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 30;
+}
+
+/* Zelfde reden als bij .archive-panel[hidden]: zonder deze regel wint
+   "display: flex" hierboven (zelfde specificiteit als het [hidden] van de
+   browser zelf) en blijft dit overlay-menu onzichtbaar ÉN ONTASTBAAR
+   scherm-vullend intercepten van tikken/klikken, ook terwijl het
+   "hidden"-attribuut aan staat. */
+.kies-menu[hidden] {
+  display: none;
+}
+
+.kies-kaart {
+  background: var(--card);
+  width: 100%;
+  max-width: 480px;
+  max-height: 70vh;
+  overflow-y: auto;
+  border-radius: 18px 18px 0 0;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+.kies-kaart h3 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+}
+
+.kies-kaart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.kies-kaart-header h3 {
+  margin: 0;
+}
+
+.kies-optie {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 8px;
+  border-radius: 10px;
+  border: none;
+  background: none;
+  font-size: 0.92rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.kies-optie:hover {
+  background: var(--blue-50);
+}
+
+.kies-optie-nieuw {
+  color: var(--blue-600);
+  font-weight: 600;
+}
+
+.cat-beheer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cat-beheer-row:last-child {
+  border-bottom: none;
+}
+
+.cat-beheer-naam {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+  font-size: 0.92rem;
 }

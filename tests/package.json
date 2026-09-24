@@ -1,0 +1,12 @@
+{
+  "name": "boodschappenlijst-tests",
+  "private": true,
+  "description": "Automatische tests voor de Boodschappenlijst-app. Zie ../README.md, hoofdstuk 'Testen (automatisch, via CI)'.",
+  "scripts": {
+    "sync": "bash sync.sh",
+    "test": "bash run-all.sh"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}
