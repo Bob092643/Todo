@@ -438,7 +438,7 @@ async function withServer(root, fn) {
     await page.waitForSelector("#archive-panel:not([hidden])");
     await page.click(".danger-zone-summary"); // gevarenzone uitklappen
     await page.waitForSelector("#delete-list-btn:visible");
-    page.once("dialog", (d) => d.accept("VERWIJDER"));
+    page.once("dialog", (d) => d.accept());
     await page.click("#delete-list-btn");
     await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");

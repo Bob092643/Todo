@@ -19,7 +19,8 @@ for d in test-run test-unconfigured; do
   sed -E '
     s#https://www\.gstatic\.com/firebasejs/[0-9.]+/firebase-app\.js#./mock-firestore.js#;
     s#https://www\.gstatic\.com/firebasejs/[0-9.]+/firebase-firestore\.js#./mock-firestore.js#;
-    s#https://www\.gstatic\.com/firebasejs/[0-9.]+/firebase-messaging\.js#./mock-messaging.js#
+    s#https://www\.gstatic\.com/firebasejs/[0-9.]+/firebase-messaging\.js#./mock-messaging.js#;
+    s#setTimeout\(askNameIfNeeded, 300\);#/* TEST-ONLY (via sync.sh): hier bewust uitgeschakeld. Deze eenmalige "Hoe wil je genoemd worden?"-vraag kan anders willekeurig (na 300ms) tussen de eigen dialoogvragen van een test door verschijnen -- bijv. vlak na het aanmaken van een lijstje -- en dan per ongeluk een dialoogantwoord opeten dat voor een HEEL ANDERE, wel verwachte vraag bedoeld was. Zo'"'"'n verkeerd beantwoorde/overgeslagen vraag laat de pagina vastlopen op een nog openstaande, onbeantwoorde prompt() -- dit was de oorzaak van een hardnekkig-flakey testfalen (met name rond lijstjes verwijderen) dat niets met de geteste functionaliteit zelf te maken had. */#
   ' "$APP_DIR/app.js" > "$d/app.js"
 
   cp "$APP_DIR/index.html" "$d/index.html"

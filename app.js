@@ -1152,10 +1152,10 @@ function start() {
 
   if (el.deleteListBtn) {
     el.deleteListBtn.addEventListener("click", async () => {
-      const typed = prompt(
-        `Hiermee verwijder je "${listName}" ${activePrive ? "van dit toestel" : "voor iedereen die de code heeft"}. Je hebt daarna nog ${ARCHIVE_DAYS} dagen om 'm terug te zetten — daarna is het lijstje echt weg.\n\nTyp VERWIJDER om te bevestigen:`
+      const bevestigd = confirm(
+        `Hiermee verwijder je "${listName}" ${activePrive ? "van dit toestel" : "voor iedereen die de code heeft"}. Je hebt daarna nog ${ARCHIVE_DAYS} dagen om 'm terug te zetten — daarna is het lijstje echt weg.\n\nWeet je het zeker?`
       );
-      if (typed !== "VERWIJDER") return;
+      if (!bevestigd) return;
 
       const deletedEntry = { id: activeId, naam: listName, items, archivedItems, updatedAt: Date.now(), deletedAt: Date.now() };
       removeFromVolgorde(activeId);
@@ -1385,6 +1385,14 @@ function start() {
 
   function onSlepen(e) {
     if (!sleepState) return;
+    // Zodra we echt aan het slepen zijn, mag de vinger niet ALSNOG de
+    // pagina laten scrollen (dat zou het item en de lijst tegelijk laten
+    // bewegen, zodat het versleepte item nauwelijks lijkt te verplaatsen
+    // t.o.v. het scherm). Dit was de ontbrekende regel die "lang drukken op
+    // de rij, dan slepen" op een echte telefoon (vinger) liet mislukken —
+    // met de muis (in de tests) valt dit niet op, want daar bestaat dit
+    // scroll-gedrag niet.
+    e.preventDefault();
     const deltaY = e.clientY - sleepState.startY;
     sleepState.li.style.transform = `translateY(${deltaY}px)`;
   }

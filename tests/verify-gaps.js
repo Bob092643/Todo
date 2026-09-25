@@ -126,7 +126,7 @@ async function openDangerZone(page) {
     // Toestel A: het lijstje archiveren én meteen definitief verwijderen.
     await pageA.click("#archive-btn");
     await openDangerZone(pageA);
-    await withDialogQueue(pageA, ["VERWIJDER", "Vervangend lijstje op A", true], async () => {
+    await withDialogQueue(pageA, [true, "Vervangend lijstje op A", true], async () => {
       await pageA.click("#delete-list-btn");
       await pageA.waitForTimeout(300);
     });
@@ -228,7 +228,7 @@ async function openDangerZone(page) {
     await page.waitForSelector("#app:not([hidden])");
     await page.click("#archive-btn");
     await openDangerZone(page);
-    await withDialogQueue(page, ["VERWIJDER"], async () => {
+    await withDialogQueue(page, [true], async () => {
       await page.click("#delete-list-btn");
       await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     });
@@ -240,7 +240,7 @@ async function openDangerZone(page) {
     // vervang-actie zou het scherm hier leeg kunnen blijven.
     await page.click("#archive-btn");
     await openDangerZone(page);
-    await withDialogQueue(page, ["VERWIJDER", "Weer een nieuw lijstje", true], async () => {
+    await withDialogQueue(page, [true, "Weer een nieuw lijstje", true], async () => {
       await page.click("#delete-list-btn");
       await page.waitForTimeout(300);
     });
