@@ -666,6 +666,12 @@ main {
   display: flex;
   align-items: center;
   gap: 12px;
+  /* Lang drukken ergens op de rij begint verslepen (zie langDrukSlepen()
+     in app.js) — zonder dit zou een langere druk op de tekst op mobiel de
+     ingebouwde tekstselectie (met vergrootglas/handvatjes) kunnen tonen,
+     wat dan verwarrend tegelijk met het "optillen" van het item gebeurt. */
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .list li.list-divider {

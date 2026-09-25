@@ -1295,6 +1295,54 @@ function start() {
     }
   });
 
+  // Lang-drukken ergens op de rij (niet op het handvatje, vinkje of
+  // ⋯-menu) begint óók verslepen, net als in de meeste andere apps — in
+  // plaats van dat je per se dat ene handvatje moet weten te raken.
+  //
+  // Belangrijk: hier bewust GEEN e.preventDefault()/touch-action:none
+  // meteen bij pointerdown, en ook geen eigen "geen scrollen"-CSS op de
+  // hele rij — anders zou heel #list nooit meer gewoon te scrollen zijn
+  // door een vinger op een item te zetten. In plaats daarvan: gewoon even
+  // afwachten (LANG_DRUK_MS), en zodra er ondertussen al beweging is (een
+  // scrollbeweging dus) de boel meteen afblazen, zodat de browser die
+  // beweging heel normaal als scrollen kan blijven afhandelen — precies
+  // alsof deze code er niet was. Pas als je echt stilhoudt en de tijd vol
+  // maakt, pakken we 'm alsnog vast via de bestaande startSlepen().
+  const LANG_DRUK_MS = 400;
+  const LANG_DRUK_TOLERANTIE_PX = 10;
+
+  function langDrukSlepen(e, itemId, pinned) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const opBeweging = (ev) => {
+      if (Math.abs(ev.clientX - startX) > LANG_DRUK_TOLERANTIE_PX || Math.abs(ev.clientY - startY) > LANG_DRUK_TOLERANTIE_PX) {
+        opruimen();
+      }
+    };
+    const opLos = () => opruimen();
+    function opruimen() {
+      clearTimeout(timer);
+      document.removeEventListener("pointermove", opBeweging);
+      document.removeEventListener("pointerup", opLos);
+      document.removeEventListener("pointercancel", opLos);
+    }
+
+    const timer = setTimeout(() => {
+      opruimen();
+      startSlepen(e, itemId, pinned);
+      // Klein trilsignaaltje (waar ondersteund) zodat duidelijk is dat het
+      // item nu "los" is en verplaatst kan worden — mag gewoon stilletjes
+      // mislukken (bijv. geen ondersteuning, of geen toestemming).
+      try { navigator.vibrate && navigator.vibrate(15); } catch (err) { /* niet erg */ }
+    }, LANG_DRUK_MS);
+
+    document.addEventListener("pointermove", opBeweging);
+    document.addEventListener("pointerup", opLos);
+    document.addEventListener("pointercancel", opLos);
+  }
+
   function startSlepen(e, itemId, pinned) {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     const li = el.list.querySelector(`li[data-id="${CSS.escape(itemId)}"]`);
@@ -1709,6 +1757,17 @@ function start() {
       handle.setAttribute("aria-label", `${item.text} verslepen om te verplaatsen`);
       handle.addEventListener("pointerdown", (e) => startSlepen(e, item.id, !!item.pinned));
       row.append(handle);
+
+      // Net als in de meeste apps: ook ergens anders op de rij (niet per se
+      // op het handvatje) lang vasthouden begint verslepen. Het handvatje
+      // hierboven blijft ook gewoon werken en pakt meteen vast (geen
+      // vertraging) — hieronder wachten we eerst even af (langDrukSlepen())
+      // zodat een gewone tik (vinkje, ⋯-menu) of een scrollbeweging niet
+      // per ongeluk als sleepactie wordt opgevat.
+      row.addEventListener("pointerdown", (e) => {
+        if (e.target.closest(".check, .drag-handle, .item-menu-wrap")) return;
+        langDrukSlepen(e, item.id, !!item.pinned);
+      });
     }
 
     // Alle overige acties (favoriet, bezig, vastpinnen, verwijderen) zitten
