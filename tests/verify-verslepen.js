@@ -70,12 +70,18 @@ async function volgordeVan(page) {
   }
 
   check("V1. Volgorde start zoals toegevoegd", JSON.stringify(await volgordeVan(page)) === JSON.stringify(["Eén", "Twee", "Drie", "Vier"]));
-  // Let op: ".move-btn" bestaat ook nog (bewust) voor het herordenen van
-  // lijstjes zelf in het ☰-paneel — dat is een ander stuk functionaliteit
-  // en blijft gewoon met pijltjes werken. Hier gaat het puur om de
-  // items-lijst zelf (#list).
-  check("V2. Er zijn geen ↑/↓-knoppen meer in de items-lijst (vervangen door het handvat)", (await page.$$("#list .move-btn")).length === 0);
   check("V3. Elk open item heeft een sleep-handvat", (await page.$$(".drag-handle")).length === 4);
+
+  // Naast slepen kan het ook met ↑/↓-knopjes achter het ⋯-menu (fijner op
+  // een telefoon dan precies moeten mikken) — bij het eerste item in de
+  // groep hoort "omhoog" uitgeschakeld te zijn, bij het laatste "omlaag".
+  const eersteLi = page.locator("#list li[data-id]").first();
+  await eersteLi.locator(".item-menu-btn").click();
+  await page.waitForTimeout(80);
+  check("V2a. Bij het eerste item is 'omhoog' uitgeschakeld", await eersteLi.locator(".move-item-btn").first().isDisabled());
+  check("V2b. Bij het eerste item is 'omlaag' gewoon te gebruiken", !(await eersteLi.locator(".move-item-btn").nth(1).isDisabled()));
+  await page.click("body");
+  await page.waitForTimeout(80);
 
   // Sleep het eerste item ("Eén") ver genoeg naar beneden om voorbij "Twee" én "Drie" te komen.
   const li = page.locator('li[data-id]').first();
@@ -91,6 +97,17 @@ async function volgordeVan(page) {
   await page.waitForSelector("#app:not([hidden])");
   const naHerladen = await volgordeVan(page);
   check("V6. Nieuwe volgorde blijft na herladen behouden", JSON.stringify(naHerladen) === JSON.stringify(naVerslepen));
+
+  // Ook los van slepen: het 2e item met de "omhoog"-knop (achter ⋯) een
+  // plekje naar voren zetten moet 'm laten wisselen met het 1e item.
+  const verwachtNaKnop = [...naHerladen];
+  [verwachtNaKnop[0], verwachtNaKnop[1]] = [verwachtNaKnop[1], verwachtNaKnop[0]];
+  const tweedeLi = page.locator("#list li[data-id]").nth(1);
+  await tweedeLi.locator(".item-menu-btn").click();
+  await page.waitForTimeout(80);
+  await tweedeLi.locator(".move-item-btn").first().click(); // "↑ Naar boven"
+  await page.waitForTimeout(150);
+  check("V6b. Ook via ↑/↓ achter het ⋯-knopje verplaatsen werkt", JSON.stringify(await volgordeVan(page)) === JSON.stringify(verwachtNaKnop));
 
   // --- Vastgepinde items vormen een eigen groep --- (de pin-knop zit
   // achter het "⋯"-actiemenu van het item, dus dat moet eerst open).

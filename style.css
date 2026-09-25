@@ -528,6 +528,36 @@ main {
   color: var(--muted);
 }
 
+.zoek-veld {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.zoek-veld:focus {
+  outline: none;
+  border-color: var(--blue-500);
+  box-shadow: 0 0 0 3px var(--blue-50);
+}
+
+.zoek-veld::placeholder {
+  color: var(--muted);
+}
+
+/* Zelfde reden als bij .toast[hidden] elders in dit bestand: onze eigen
+   "display: block" zou anders de standaard [hidden]-regel van de browser
+   verslaan, en het veldje mét het hidden-attribuut toch in beeld laten. */
+.zoek-veld[hidden] {
+  display: none;
+}
+
 .btn {
   border: none;
   border-radius: 12px;
@@ -638,6 +668,29 @@ main {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.list li.list-divider-afgerond {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wis-afgevinkte-btn {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  color: var(--blue-600);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+
+.wis-afgevinkte-btn:hover {
+  text-decoration: underline;
 }
 
 /* Versleep-handvat — vervangt de oude ↑/↓-knoppen: pak 'm vast en sleep
@@ -853,6 +906,27 @@ main {
   line-height: 1;
 }
 
+.badge-kleur-opties {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.badge-kleur-optie {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.badge-kleur-optie.actief {
+  border-color: var(--text, #1f2937);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 0 0 3px rgba(0, 0, 0, 0.08);
+}
+
 .info-content {
   margin-top: 8px;
 }
@@ -904,9 +978,20 @@ main {
 }
 
 #toast-text {
-  white-space: nowrap;
+  /* Mag best 2 regels worden i.p.v. na een handvol tekens af te kappen —
+     "Wc-papier en handdoekjes" is af..." was nauwelijks nog te lezen.
+     Alleen bij een echt extreem lange itemnaam knipt het (met "...") na
+     2 regels af, in plaats van meteen na de eerste. */
+  flex: 1 1 auto;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+#toast-undo-btn {
+  flex-shrink: 0;
 }
 
 /* Eigen CSS zoals hierboven wint anders van de standaard [hidden]-regel
@@ -1112,6 +1197,15 @@ main {
 .item-menu .delete-btn:hover {
   color: var(--danger);
   background: rgba(229, 72, 77, 0.1);
+}
+
+.item-menu button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.item-menu button:disabled:hover {
+  background: none;
 }
 
 .hint {

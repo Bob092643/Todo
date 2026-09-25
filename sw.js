@@ -1,4 +1,4 @@
-const CACHE_NAME = "boodschappenlijst-v22";
+const CACHE_NAME = "boodschappenlijst-v23";
 // Belangrijk: sinds app.js is opgeknipt in losse module-bestanden (die
 // app.js zelf met "import" inleest) moeten die HIER OOK stuk voor stuk bij
 // staan — anders werkt de app zelf niet meer offline (index.html/app.js

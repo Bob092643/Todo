@@ -106,6 +106,12 @@
       </div>
     </div>
 
+    <div class="settings-section">
+      <p class="settings-section-title">🔵 Badge-kleur</p>
+      <p class="settings-section-hint" id="badge-kleur-hint">Stel hierboven eerst je naam in — dan kun je hier je eigen badge-kleurtje kiezen.</p>
+      <div id="badge-kleur-opties" class="badge-kleur-opties"></div>
+    </div>
+
     <div class="settings-section" id="push-section" hidden>
       <p class="settings-section-title">🔔 Pushmeldingen</p>
       <p class="settings-section-hint" id="push-hint">Krijg een melding op dit toestel zodra iemand anders iets toevoegt aan een gedeeld lijstje.</p>
@@ -122,11 +128,13 @@
           <ul>
             <li><strong>✅ Afvinken</strong> — klaar? Vink het aan. Per ongeluk? Vink het weer uit, of gebruik het "Ongedaan maken"-knopje dat even in beeld komt.</li>
             <li><strong>✕ Verwijderen</strong> — het item gaat 30 dagen naar het archief (🗄️-knop hierboven), waar je het nog kunt terugzetten of meteen definitief kunt verwijderen.</li>
-            <li><strong>⠿ Volgorde</strong> — pak een openstaand item vast bij het handvatje en sleep het naar de gewenste plek (met muis of vinger).</li>
-            <li><strong>⋯ Meer acties</strong> — vastpinnen, "bezig" zetten, favoriet maken en verwijderen zitten achter dit knopje bij elk item.</li>
+            <li><strong>⠿ Volgorde</strong> — pak een openstaand item vast bij het handvatje en sleep het naar de gewenste plek (met muis of vinger), of gebruik ↑/↓ achter het ⋯-knopje.</li>
+            <li><strong>⋯ Meer acties</strong> — vastpinnen, omhoog/omlaag verplaatsen, "bezig" zetten, favoriet maken en verwijderen zitten achter dit knopje bij elk item.</li>
             <li><strong>📌 Vastpinnen</strong> — houdt een belangrijk item altijd bovenaan, ongeacht de volgorde.</li>
             <li><strong>🕐 Bezig</strong> — laat zien dat iemand hier al mee bezig is (bijv. al gebeld, maar nog geen reactie), los van het vinkje. Mag met een kort notitietje; laat je dat leeg, dan staat gewoon jouw naam erbij. Verdwijnt vanzelf zodra het item wordt afgevinkt.</li>
             <li><strong>★ Favoriet</strong> — zet een item op je vaste "Snel toevoegen"-rijtje boven de lijst, ook nadat je 'm hebt afgevinkt en verwijderd. Items die je vaak genoeg toevoegt, verschijnen daar trouwens ook vanzelf bij, zonder dat je ze apart hoeft te markeren.</li>
+            <li><strong>🔍 Zoeken</strong> — verschijnt zodra je lijstje lang genoeg is; filtert op alles, ook afgevinkte items.</li>
+            <li><strong>Wis alles</strong> — bij "Afgerond" alle afgevinkte items in één keer opruimen, i.p.v. één voor één.</li>
             <li><strong>☰ Lijstjes</strong> — al je lijstjes (gedeeld en privé); de eerste 3 (in de volgorde die jij zelf per toestel instelt) staan als tabblad bovenin, de rest vind je hier.</li>
             <li><strong>Verbergen</strong> — een gedeeld lijstje op dit toestel uit beeld halen. Het lijstje zelf blijft gewoon bestaan (anderen met de code kunnen er nog steeds bij); je vindt 'm terug onderaan ☰ Lijstjes, bij "Verborgen op dit toestel", om 'm weer te laten zien.</li>
             <li><strong>Delen</strong> — stuurt de link waarmee anderen ook bij dit gedeelde lijstje kunnen (kan niet voor een privé lijstje).</li>
@@ -146,11 +154,18 @@
 
     <div id="snel-toevoegen-rij" class="snel-rij" hidden></div>
 
+    <input id="zoek-veld" class="zoek-veld" type="search" placeholder="🔍 Zoeken in lijst..." autocomplete="off" hidden />
+
     <ul id="list" class="list"></ul>
 
     <div id="empty-hint" class="empty-state" hidden>
       <span class="icon">📝</span>
       Nog niks op je lijst.<br />Voeg hierboven je eerste item toe.
+    </div>
+
+    <div id="zoek-geen-resultaten" class="empty-state" hidden>
+      <span class="icon">🔍</span>
+      Niks gevonden <span id="zoek-geen-resultaten-term"></span>
     </div>
   </main>
 
