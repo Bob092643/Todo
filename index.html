@@ -8,6 +8,11 @@
   <meta name="referrer" content="no-referrer" />
   <title>Onze lijst</title>
   <link rel="manifest" href="./manifest.json" />
+  <!-- Alleen voor iPhone/iPad: Safari kijkt bij "Zet op beginscherm" liever
+       naar dit specifieke label dan naar de iconen in manifest.json. Andere
+       browsers (Chrome, Firefox, Edge, desktop) negeren een rel="..." die ze
+       niet kennen gewoon, dus dit heeft daar geen enkel effect. -->
+  <link rel="apple-touch-icon" href="./icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
