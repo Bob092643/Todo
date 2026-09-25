@@ -108,7 +108,7 @@ async function withDialogQueue(page, answers, fn) {
     // de eigen onSnapshot-echo van het opslaan — geen extra dialoogvragen) ---
     await page.click("#archive-btn");
     await openDangerZone(page);
-    await withDialogQueue(page, ["VERWIJDER"], async () => {
+    await withDialogQueue(page, [true], async () => {
       await page.click("#delete-list-btn");
       await page.waitForTimeout(500);
     });
@@ -131,7 +131,7 @@ async function withDialogQueue(page, answers, fn) {
     await openDangerZone(page);
     // "Vervangend lijstje" (gedeeld) bestaat nog, dus geen extra
     // vervang-lijstje-dialogen nodig — de app schakelt er gewoon naartoe.
-    await withDialogQueue(page, ["VERWIJDER"], async () => {
+    await withDialogQueue(page, [true], async () => {
       await page.click("#delete-list-btn");
       await page.waitForTimeout(300);
     });

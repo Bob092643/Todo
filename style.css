@@ -740,6 +740,10 @@ main {
   box-shadow: var(--shadow);
   background: var(--card);
   border-radius: 12px;
+  /* Zodra een item echt versleept wordt (ook via "lang drukken", niet
+     alleen via het handvat) mag de vinger niet meer als scrollen tellen —
+     zie ook de e.preventDefault() in onSlepen() in app.js. */
+  touch-action: none;
 }
 
 .item-stale {
