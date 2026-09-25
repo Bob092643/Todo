@@ -226,6 +226,35 @@ async function openListsPanel(page) {
     await ctx.close();
   }
 
+  // ============================================================
+  // M. Vanuit het archief terug naar de gewone weergave via het
+  // (al-actieve) tabblad of de (al-actieve) rij in het ☰-paneel — niet
+  // alleen via het kruisje.
+  // ============================================================
+  {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto(`${base}/index.html?lijst=nav-test-1`);
+    await page.waitForSelector("#app:not([hidden])");
+
+    await page.click("#archive-btn");
+    await page.waitForSelector("#archive-panel:not([hidden])");
+    await page.click(".list-tab.active");
+    await page.waitForTimeout(150);
+    check("M1. Klikken op het al-actieve tabblad sluit het archief weer", await page.isHidden("#archive-panel"));
+    check("M1b. ...en de gewone lijst is weer zichtbaar", await page.isVisible("#app"));
+
+    await page.click("#archive-btn");
+    await page.waitForSelector("#archive-panel:not([hidden])");
+    await openListsPanel(page);
+    await page.click(".lists-panel-row.active .lists-panel-name");
+    await page.waitForTimeout(150);
+    check("M2. Klikken op de al-actieve rij in het ☰-paneel sluit het archief ook", await page.isHidden("#archive-panel"));
+    check("M2b. ...en de gewone lijst is weer zichtbaar", await page.isVisible("#app"));
+
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 
