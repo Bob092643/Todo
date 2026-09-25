@@ -43,6 +43,7 @@ export const el = {
   archiveList: document.getElementById("archive-list"),
   archiveEmptyHint: document.getElementById("archive-empty-hint"),
   deleteListBtn: document.getElementById("delete-list-btn"),
+  dangerZoneLijstNaam: document.getElementById("danger-zone-lijst-naam"),
   settingsBtn: document.getElementById("settings-btn"),
   settingsPanel: document.getElementById("settings-panel"),
   settingsCloseBtn: document.getElementById("settings-close-btn"),

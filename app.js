@@ -289,6 +289,12 @@ function start() {
     listName = name && name.trim() ? name.trim() : DEFAULT_LIST_NAME;
     el.listNameEl.textContent = listName;
     document.title = listName;
+    // Het archief is centraal (alle lijstjes tegelijk, zie renderArchive()),
+    // maar "dit lijstje verwijderen" in de gevarenzone daaronder werkt nog
+    // steeds alleen op de actieve lijst — daarom hier expliciet noemen om
+    // welk lijstje het gaat, anders is dat in die centrale weergave niet
+    // meer vanzelfsprekend.
+    if (el.dangerZoneLijstNaam) el.dangerZoneLijstNaam.textContent = `"${listName}"`;
   }
   setListName(DEFAULT_LIST_NAME);
 
@@ -349,7 +355,10 @@ function start() {
     params.set("actief", id);
     history.replaceState(null, "", `${location.pathname}?${p.toString()}`);
 
-    archiveOpen = false;
+    // "archiveOpen" bewust NIET meer resetten: het archief is sinds kort
+    // een centrale weergave over AL je lijstjes heen (zie renderArchive()),
+    // dus wisselen van "actief" lijstje op de achtergrond hoort je daar
+    // niet meer zomaar uit te knallen — dat viel eerder juist vervelend op.
     settingsOpen = false;
     listsOpen = false;
     updateDeletedView();
@@ -1007,17 +1016,26 @@ function start() {
     scheduleSave();
   }
 
+  // Centraal archief: toont verwijderde items van AL je lijstjes bij
+  // elkaar (i.p.v. steeds per lijstje apart moeten kijken), elk met een
+  // tagje erbij welk lijstje het was.
   function renderArchive() {
     if (!el.archiveList) return;
     el.archiveList.innerHTML = "";
-    el.archiveEmptyHint.hidden = archivedItems.length > 0;
+    const alles = alleGearchiveerdeItems();
+    el.archiveEmptyHint.hidden = alles.length > 0;
 
-    for (const item of archivedItems) {
+    for (const { item, lijstId, lijstNaam, prive } of alles) {
       const li = document.createElement("li");
 
       const text = document.createElement("span");
       text.className = "item-text";
       text.textContent = item.text;
+
+      const tag = document.createElement("span");
+      tag.className = "archive-lijst-tag";
+      tag.textContent = (prive ? "🔒 " : "") + lijstNaam;
+      tag.title = `Uit lijstje "${lijstNaam}"`;
 
       const meta = document.createElement("span");
       meta.className = "archive-meta";
@@ -1028,15 +1046,15 @@ function start() {
       restoreBtn.type = "button";
       restoreBtn.className = "btn btn-ghost btn-small";
       restoreBtn.textContent = "Terugzetten";
-      restoreBtn.addEventListener("click", () => restoreItem(item.id));
+      restoreBtn.addEventListener("click", () => restoreArchivedItem(lijstId, prive, item.id));
 
       const deleteForeverBtn = document.createElement("button");
       deleteForeverBtn.type = "button";
       deleteForeverBtn.className = "btn btn-ghost btn-small btn-delete-forever";
       deleteForeverBtn.textContent = "Verwijder definitief";
-      deleteForeverBtn.addEventListener("click", () => permanentlyDeleteItem(item.id));
+      deleteForeverBtn.addEventListener("click", () => permanentlyDeleteArchivedItem(lijstId, prive, item.id));
 
-      li.append(text, meta, restoreBtn, deleteForeverBtn);
+      li.append(text, tag, meta, restoreBtn, deleteForeverBtn);
       el.archiveList.appendChild(li);
     }
   }
@@ -1464,6 +1482,75 @@ function start() {
     priveLijsten.forEach(voegToe);
     voegToe({ items, archivedItems }); // de actieve lijst zelf
     return namen;
+  }
+
+  // Geeft het ECHTE lijst-object terug (dus rechtstreeks uit
+  // householdLijsten/priveLijsten, niet de kopie die getAllLists()/
+  // findList() teruggeven) — nodig zodra we ook een EIGENSCHAP als
+  // "updatedAt" willen aanpassen, niet alleen iets binnen een array
+  // (items/archivedItems) die toch al gedeeld wordt met de kopie.
+  function echteLijst(lijstId, prive) {
+    return (prive ? priveLijsten : householdLijsten).find((l) => l.id === lijstId) || null;
+  }
+
+  // Alle gearchiveerde items van ALLE lijstjes (gedeeld + privé) samen, elk
+  // gemerkt met bij welk lijstje het hoort — voor de centrale
+  // archiefweergave (zie renderArchive()). Voor de actieve lijst gebruiken
+  // we de live werkvariabelen (die kunnen nog net iets verser zijn dan wat
+  // al in householdLijsten/priveLijsten staat, zie ook alleBekendeNamen()
+  // hierboven), voor de rest gewoon de laatst bekende stand van dat
+  // lijstje zelf.
+  function alleGearchiveerdeItems() {
+    const resultaat = [];
+    getAllLists().forEach((l) => {
+      const bron = l.id === activeId ? archivedItems : (l.archivedItems || []);
+      for (const item of bron) {
+        resultaat.push({ item, lijstId: l.id, lijstNaam: l.naam || "Lijst", prive: !!l.prive });
+      }
+    });
+    resultaat.sort((a, b) => (b.item.deletedAt || 0) - (a.item.deletedAt || 0));
+    return resultaat;
+  }
+
+  // Zet een gearchiveerd item terug, ongeacht of het bij de actieve lijst
+  // hoort of bij een ander lijstje (voor dat laatste: rechtstreeks de
+  // ECHTE lijst aanpassen en los opslaan, want scheduleSave()/saveList()
+  // slaan alleen de actieve lijst op).
+  async function restoreArchivedItem(lijstId, prive, itemId) {
+    if (lijstId === activeId) {
+      restoreItem(itemId);
+      return;
+    }
+    const l = echteLijst(lijstId, prive);
+    if (!l) return;
+    const idx = (l.archivedItems || []).findIndex((i) => i.id === itemId);
+    if (idx === -1) return;
+    const [item] = l.archivedItems.splice(idx, 1);
+    delete item.deletedAt;
+    l.items = l.items || [];
+    l.items.push(item);
+    l.updatedAt = Date.now();
+    renderArchive();
+    renderTabsAndPanel();
+    if (prive) savePrive();
+    else await saveHousehold();
+  }
+
+  // Zelfde verhaal als permanentlyDeleteItem(), maar dan voor een item dat
+  // niet per se bij de actieve lijst hoort.
+  async function permanentlyDeleteArchivedItem(lijstId, prive, itemId) {
+    if (lijstId === activeId) {
+      permanentlyDeleteItem(itemId);
+      return;
+    }
+    const l = echteLijst(lijstId, prive);
+    if (!l) return;
+    const idx = (l.archivedItems || []).findIndex((i) => i.id === itemId);
+    if (idx === -1) return;
+    l.archivedItems.splice(idx, 1);
+    renderArchive();
+    if (prive) savePrive();
+    else await saveHousehold();
   }
 
   function initialenVoor(naam, alleNamen) {
