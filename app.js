@@ -103,6 +103,13 @@ function start() {
     "#3b82f6", "#6366f1", "#a855f7", "#ec4899", "#64748b",
   ];
 
+  // Door mensen zelf gekozen badge-kleur, per naam ({ naam: "#hex" }) —
+  // gedeeld binnen het hele gezinnetje (zie badgeKleurenOpslaan()) en
+  // gelezen door kleurVoor() als voorkeur boven de automatische kleur
+  // hierboven. Moet, om dezelfde reden als openItemMenuId/BADGE_KLEUREN,
+  // hier al vroeg bestaan.
+  let badgeKleuren = {};
+
   // ============================================================
   // Lokale (per-toestel) opslag: privé lijstjes, tabblad-voorkeuren
   // (vastgepind/volgorde), laatst-gezien-tijdstippen, en de "oude"
@@ -254,6 +261,9 @@ function start() {
   let householdSaveChain = Promise.resolve();
 
   let items = [];
+  // Wat er nu in het zoekveldje staat (leeg = geen filter actief). Puur
+  // schermweergave, hoeft niet bewaard te worden.
+  let zoekTerm = "";
   // Snel toevoegen: favorieten zijn zelf gekozen ({id, tekst}, blijft staan
   // tot iemand 'm weer verwijdert) en itemFrequentie telt gewoon hoe vaak
   // een itemnaam (genormaliseerd -> {aantal, tekst}) is toegevoegd, zodat
@@ -590,6 +600,7 @@ function start() {
         householdArchivedLijsten = data.archivedLijsten || [];
         householdTombstones = data.tombstones || [];
       }
+      badgeKleuren = data.badgeKleuren || {};
 
       // Opgeruimde (>30 dagen oude) archief-lijstjes definitief weg.
       const purgedLijsten = purgeExpiredLists();
@@ -629,6 +640,7 @@ function start() {
       render();
       renderArchive();
       renderTabsAndPanel();
+      renderBadgeKleurPicker();
       setSyncStatus("Gesynchroniseerd " + new Date().toLocaleTimeString(), "synced");
       if (purgedItems || backfilled || purgedLijsten) scheduleSave();
     },
@@ -950,6 +962,30 @@ function start() {
     }
   }
 
+  // Alle afgevinkte items in één keer opruimen (i.p.v. steeds los eentje
+  // per eentje) — belanden net als bij een los item gewoon in het archief
+  // (zelfde 30-dagen-vangnet), met één gezamenlijke "Ongedaan maken".
+  function wisAfgevinkte() {
+    const klaar = items.filter((i) => i.done);
+    if (klaar.length === 0) return;
+    const ids = klaar.map((i) => i.id);
+    for (const id of ids) {
+      const idx = items.findIndex((i) => i.id === id);
+      if (idx === -1) continue;
+      const [item] = items.splice(idx, 1);
+      item.deletedAt = Date.now();
+      archivedItems.push(item);
+      knownIds.delete(id);
+    }
+    render();
+    renderArchive();
+    scheduleSave();
+    showToast(
+      ids.length === 1 ? `"${klaar[0].text}" is verwijderd` : `${ids.length} afgeronde items zijn verwijderd`,
+      () => ids.forEach((id) => restoreItem(id))
+    );
+  }
+
   function restoreItem(id) {
     const idx = archivedItems.findIndex((i) => i.id === id);
     if (idx === -1) return;
@@ -1053,7 +1089,18 @@ function start() {
       archiveOpen = false;
       listsOpen = false;
       updateNameBtn();
+      renderBadgeKleurPicker();
       updateDeletedView();
+    });
+  }
+
+  if (el.nameBtn) {
+    // naam.js verwerkt de naamwijziging zelf (prompt() is synchroon, dus
+    // meteen klaar); hier alleen de badge-kleurkiezer en de lijst zelf
+    // opnieuw tekenen, want die tonen ook de naam/kleur.
+    el.nameBtn.addEventListener("click", () => {
+      renderBadgeKleurPicker();
+      render();
     });
   }
 
@@ -1380,6 +1427,24 @@ function start() {
     });
   }
 
+  // Eén item één plekje omhoog/omlaag, net als moveList() hierboven voor
+  // lijstjes — maar dan binnen de eigen "baan" (open+vastgepind,
+  // open+niet-vastgepind, of afgevinkt), want dat zijn ook de groepen
+  // waarin render()/buildItemRow ze los van elkaar laat zien.
+  function moveItem(id, direction) {
+    const item = items.find((i) => i.id === id);
+    if (!item) return;
+    const zelfdeGroep = items.filter((i) => i.done === item.done && !!i.pinned === !!item.pinned);
+    const posInGroep = zelfdeGroep.indexOf(item);
+    const buur = zelfdeGroep[posInGroep + direction];
+    if (!buur) return;
+    const i1 = items.indexOf(item);
+    const i2 = items.indexOf(buur);
+    [items[i1], items[i2]] = [items[i2], items[i1]];
+    render();
+    scheduleSave();
+  }
+
   // Compacte weergave van "wie": een klein rond badge met (zo kort mogelijk
   // unieke) initialen in plaats van een hele regel "Toegevoegd door X" /
   // "Afgevinkt door X" — dat nam te veel ruimte in terwijl het niet zoveel
@@ -1414,6 +1479,7 @@ function start() {
   }
 
   function kleurVoor(naam) {
+    if (badgeKleuren[naam]) return badgeKleuren[naam];
     let hash = 0;
     for (let i = 0; i < naam.length; i++) hash = (hash * 31 + naam.charCodeAt(i)) >>> 0;
     return BADGE_KLEUREN[hash % BADGE_KLEUREN.length];
@@ -1427,6 +1493,65 @@ function start() {
     badge.title = titel;
     badge.setAttribute("aria-label", titel);
     return badge;
+  }
+
+  // Los van de gewone lijst-opslag (net als de pushTokens hierboven): een
+  // eigen kleine transactie die alleen badgeKleuren aanpast, niet de
+  // lijsten/archief/grafstenen van dat moment.
+  async function stelBadgeKleurIn(naam, kleur) {
+    // Alvast lokaal bijwerken en opnieuw tekenen: dan zie je je nieuwe
+    // kleurtje meteen, zonder te wachten op de round-trip naar de server.
+    badgeKleuren = { ...badgeKleuren, [naam]: kleur };
+    render();
+    renderBadgeKleurPicker();
+    // Belangrijk: eerst een eventueel nog wachtende lijst-opslag (zie
+    // scheduleSave(), 400ms-debounce) afdwingen. Zonder dit zou deze losse
+    // transactie de server nog met de VORIGE stand van de lijsten kunnen
+    // lezen (je nieuwste toevoeging stond dan nog niet op de server), en
+    // die oudere stand er met "...server" zo weer overheen terugschrijven
+    // — en daarmee je net-toegevoegde item stilletjes weer laten
+    // verdwijnen zodra deze schrijfactie via onSnapshot terugkomt.
+    await flushPendingSave();
+    try {
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(householdRef);
+        const server = snap.exists() ? snap.data() : {};
+        transaction.set(householdRef, {
+          ...server,
+          badgeKleuren: { ...(server.badgeKleuren || {}), [naam]: kleur },
+        });
+      });
+    } catch (e) {
+      console.error("Kon badge-kleur niet opslaan:", e);
+    }
+  }
+
+  function renderBadgeKleurPicker() {
+    if (!el.badgeKleurOpties) return;
+    const naam = getMyName();
+    if (!naam) {
+      el.badgeKleurOpties.innerHTML = "";
+      if (el.badgeKleurHint) {
+        el.badgeKleurHint.textContent = "Stel hierboven eerst je naam in — dan kun je hier je eigen badge-kleurtje kiezen.";
+      }
+      return;
+    }
+    if (el.badgeKleurHint) {
+      el.badgeKleurHint.textContent = 'Jouw bolletje bij "Toegevoegd door" / "Afgevinkt door" — deze kleur zien ook je huisgenoten.';
+    }
+    const huidigeKleur = kleurVoor(naam);
+    el.badgeKleurOpties.innerHTML = "";
+    for (const kleur of BADGE_KLEUREN) {
+      const optie = document.createElement("button");
+      optie.type = "button";
+      optie.className = "badge-kleur-optie";
+      if (kleur === huidigeKleur) optie.classList.add("actief");
+      optie.style.background = kleur;
+      optie.title = kleur;
+      optie.setAttribute("aria-label", `Kies deze kleur (${kleur})`);
+      optie.addEventListener("click", () => stelBadgeKleurIn(naam, kleur));
+      el.badgeKleurOpties.append(optie);
+    }
   }
 
   function buildItemRow(item, { showMoveButtons, alleNamen }) {
@@ -1578,6 +1703,37 @@ function start() {
     }
 
     if (showMoveButtons) {
+      // Naast slepen (het handvatje) en "Vastpinnen bovenaan" (dat maar 1
+      // vaste plek kent) ook gewoon met knopjes een plekje omhoog/omlaag
+      // kunnen, zoals bij lijstjes in het ☰-paneel al kon — fijner dan
+      // preciesmoeten mikken met een sleepbeweging, zeker op een telefoon.
+      const zelfdeGroep = items.filter((i) => i.done === item.done && !!i.pinned === !!item.pinned);
+      const posInGroep = zelfdeGroep.indexOf(item);
+
+      const omhoogBtn = document.createElement("button");
+      omhoogBtn.type = "button";
+      omhoogBtn.className = "move-item-btn";
+      omhoogBtn.textContent = "↑ Naar boven";
+      omhoogBtn.disabled = posInGroep <= 0;
+      omhoogBtn.setAttribute("aria-label", `${item.text} naar boven verplaatsen`);
+      omhoogBtn.addEventListener("click", () => {
+        openItemMenuId = null;
+        moveItem(item.id, -1);
+      });
+      menu.append(omhoogBtn);
+
+      const omlaagBtn = document.createElement("button");
+      omlaagBtn.type = "button";
+      omlaagBtn.className = "move-item-btn";
+      omlaagBtn.textContent = "↓ Naar beneden";
+      omlaagBtn.disabled = posInGroep >= zelfdeGroep.length - 1;
+      omlaagBtn.setAttribute("aria-label", `${item.text} naar beneden verplaatsen`);
+      omlaagBtn.addEventListener("click", () => {
+        openItemMenuId = null;
+        moveItem(item.id, 1);
+      });
+      menu.append(omlaagBtn);
+
       const pinBtn = document.createElement("button");
       pinBtn.type = "button";
       pinBtn.className = "pin-btn" + (item.pinned ? " active" : "");
@@ -1654,12 +1810,27 @@ function start() {
 
   function render() {
     el.list.innerHTML = "";
-    el.emptyHint.hidden = items.length > 0;
     renderSnelToevoegen();
 
+    // Zoekveldje: alleen tonen als er ook echt iets te doorzoeken valt, en
+    // filtert op alles (open én afgevinkt) — zo vind je ook een afgevinkt
+    // item terug.
+    if (el.zoekVeld) el.zoekVeld.hidden = items.length === 0;
+    const zoekTermSchoon = zoekTerm.trim().toLowerCase();
+    const zoekActief = zoekTermSchoon.length > 0;
+    const bronItems = zoekActief
+      ? items.filter((i) => i.text.toLowerCase().includes(zoekTermSchoon))
+      : items;
+
+    el.emptyHint.hidden = !(items.length === 0);
+    if (el.zoekGeenResultaten) {
+      el.zoekGeenResultaten.hidden = !(zoekActief && items.length > 0 && bronItems.length === 0);
+      if (el.zoekGeenResultatenTerm) el.zoekGeenResultatenTerm.textContent = `voor "${zoekTerm.trim()}".`;
+    }
+
     const alleNamen = alleBekendeNamen();
-    const active = items.filter((i) => !i.done);
-    const done = items.filter((i) => i.done);
+    const active = bronItems.filter((i) => !i.done);
+    const done = bronItems.filter((i) => i.done);
     const pinnedActive = active.filter((i) => i.pinned);
     const normalActive = active.filter((i) => !i.pinned);
 
@@ -1680,8 +1851,16 @@ function start() {
 
     if (active.length > 0 && done.length > 0) {
       const divider = document.createElement("li");
-      divider.className = "list-divider";
-      divider.textContent = `Afgerond (${done.length})`;
+      divider.className = "list-divider list-divider-afgerond";
+      const label = document.createElement("span");
+      label.textContent = `Afgerond (${done.length})`;
+      const wisBtn = document.createElement("button");
+      wisBtn.type = "button";
+      wisBtn.className = "wis-afgevinkte-btn";
+      wisBtn.textContent = "Wis alles";
+      wisBtn.setAttribute("aria-label", "Alle afgevinkte items in één keer verwijderen");
+      wisBtn.addEventListener("click", wisAfgevinkte);
+      divider.append(label, wisBtn);
       el.list.appendChild(divider);
     }
 
@@ -1737,7 +1916,17 @@ function start() {
       tab.appendChild(label);
 
       tab.addEventListener("click", () => {
-        if (id !== activeId) switchToList(id);
+        if (id !== activeId) {
+          switchToList(id);
+        } else if (archiveOpen || settingsOpen || listsOpen) {
+          // Al op dit lijstje, maar je zit nog in het archief/instellingen/
+          // ☰-paneel: dan moet een tik op dit tabblad je (net als het
+          // kruisje) terugbrengen naar de gewone lijst-weergave.
+          archiveOpen = false;
+          settingsOpen = false;
+          listsOpen = false;
+          updateDeletedView();
+        }
       });
 
       el.listTabs.appendChild(tab);
@@ -1781,7 +1970,14 @@ function start() {
       switchBtn.className = "lists-panel-name";
       switchBtn.textContent = labelFor(l);
       switchBtn.addEventListener("click", () => {
-        if (id !== activeId) switchToList(id);
+        if (id !== activeId) {
+          switchToList(id);
+        } else {
+          listsOpen = false;
+          settingsOpen = false;
+          archiveOpen = false;
+          updateDeletedView();
+        }
       });
 
       const moveWrap = document.createElement("span");
@@ -1904,6 +2100,13 @@ function start() {
     voegItemToe(text);
     el.newItem.value = "";
   });
+
+  if (el.zoekVeld) {
+    el.zoekVeld.addEventListener("input", () => {
+      zoekTerm = el.zoekVeld.value;
+      render();
+    });
+  }
 
   el.shareBtn.addEventListener("click", async () => {
     if (activePrive) {
