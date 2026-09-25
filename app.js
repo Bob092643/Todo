@@ -110,6 +110,13 @@ function start() {
   // hier al vroeg bestaan.
   let badgeKleuren = {};
 
+  // Welke lijst-id's er NU daadwerkelijk als tabblad bovenin staan (zie
+  // renderTabs() verderop, die dit na elke render opnieuw uitrekent aan de
+  // hand van de beschikbare breedte — geen vast aantal meer). Wordt ook
+  // gelezen door renderListsPanel() (voor het "tabblad"-label per rij), en
+  // moet daarom, om dezelfde reden als hierboven, al vroeg bestaan.
+  let huidigeTabIds = [];
+
   // ============================================================
   // Lokale (per-toestel) opslag: privé lijstjes, tabblad-voorkeuren
   // (vastgepind/volgorde), laatst-gezien-tijdstippen, en de "oude"
@@ -151,11 +158,13 @@ function start() {
   let priveLijsten = loadJSON(PRIVE_KEY, []);
   let priveArchief = loadJSON(PRIVE_ARCHIEF_KEY, []);
   // volgorde: array van lijst-id's, in jouw eigen volgorde voor dit
-  // toestel. De eerste TABS_COUNT staan als tabblad bovenin; de rest vind
-  // je terug in het ☰-paneel. Geen apart "vastpinnen" meer — de volgorde
-  // zelf bepaalt alles (zie renderTabs/renderListsPanel verderop).
+  // toestel. Zoveel mogelijk hiervan (van voren af aan) staan als tabblad
+  // bovenin — hoeveel dat er zijn hangt af van de beschikbare breedte en
+  // hoe lang de naampjes zijn (zie renderTabs() verderop), geen vast
+  // aantal meer. De rest vind je terug in het ☰-paneel. Geen apart
+  // "vastpinnen" meer — de volgorde zelf bepaalt alles (zie
+  // renderTabs/renderListsPanel verderop).
   let volgorde = loadJSON(VOLGORDE_KEY, []).map((v) => (typeof v === "string" ? v : v.id));
-  const TABS_COUNT = 3;
   let laatstGezien = loadJSON(GEZIEN_KEY, {});
   // Gedeelde lijstjes die je op dit toestel bewust "verborgen" hebt (via het
   // ✕-knopje in het ☰-paneel) — ze bestaan nog gewoon (voor iedereen met de
@@ -180,8 +189,8 @@ function start() {
 
   // Zorgt dat een lijst-id in de lokale volgorde-lijst staat. Komt
   // standaard achteraan (dus pas een tabblad zodra 'ie, door zelf te
-  // verschuiven of doordat er lijstjes vóór 'm wegvallen, in de eerste
-  // TABS_COUNT terechtkomt) — behalve het eerste lijstje ooit, dat komt
+  // verschuiven of doordat er lijstjes vóór 'm wegvallen, alsnog binnen de
+  // beschikbare breedte past) — behalve het eerste lijstje ooit, dat komt
   // vanzelf op plek 1 terecht.
   function ensureInVolgorde(id) {
     if (volgorde.includes(id)) return;
@@ -322,8 +331,9 @@ function start() {
   }
 
   // Een lijstje één plekje omhoog/omlaag in de volgorde — die volgorde
-  // bepaalt rechtstreeks welke lijstjes als tabblad bovenin staan (de
-  // eerste TABS_COUNT) en welke alleen in het ☰-paneel te vinden zijn.
+  // bepaalt rechtstreeks welke lijstjes als tabblad bovenin staan (zoveel
+  // als er van voren af aan op één regel passen, zie renderTabs()) en
+  // welke alleen in het ☰-paneel te vinden zijn.
   function moveList(id, direction) {
     const myIndex = volgorde.indexOf(id);
     if (myIndex === -1) return;
@@ -2018,8 +2028,9 @@ function start() {
   }
 
   // ============================================================
-  // Tabbladen (de eerste TABS_COUNT lijstjes, in jouw eigen volgorde) +
-  // het "Lijstjes"-paneel (echt alle lijstjes, met volgorde/schakelen).
+  // Tabbladen (zoveel lijstjes als er, in jouw eigen volgorde, op één
+  // regel passen) + het "Lijstjes"-paneel (echt alle lijstjes, met
+  // volgorde/schakelen).
   // ============================================================
   function renderTabsAndPanel() {
     renderTabs();
@@ -2030,16 +2041,12 @@ function start() {
     return (l.prive ? "🔒 " : "") + (l.naam || "Lijst") + (heeftIetsNieuws(l) ? " •" : "");
   }
 
-  // De id's die als tabblad bovenin staan: de eerste TABS_COUNT uit de
-  // volgorde die ook echt (nog) bestaan — een verdwenen id telt niet mee,
-  // zodat er nooit minder tabbladen staan dan er lijstjes beschikbaar zijn.
+  // De id's die NU als tabblad bovenin staan — bijgehouden in huidigeTabIds
+  // (bijgewerkt door renderTabs() hieronder, telkens na het opnieuw
+  // passend maken), niet zelf hier opnieuw berekend: dat kan alleen aan de
+  // hand van de daadwerkelijk gerenderde (en gemeten) breedte.
   function tabIds() {
-    const ids = [];
-    for (const id of volgorde) {
-      if (ids.length >= TABS_COUNT) break;
-      if (findList(id)) ids.push(id);
-    }
-    return ids;
+    return huidigeTabIds;
   }
 
   function renderTabs() {
@@ -2047,7 +2054,14 @@ function start() {
     el.listTabs.innerHTML = "";
     el.listTabs.hidden = false;
 
-    for (const id of tabIds()) {
+    // Kandidaten: ALLE bestaande lijstjes in jouw eigen volgorde — geen
+    // vast aantal meer. Hoeveel daarvan uiteindelijk als tabblad blijven
+    // staan hangt af van de beschikbare breedte (zie de meet-stap
+    // hieronder): kortere naampjes → meer tabbladen passen er vanzelf bij.
+    const kandidaatIds = volgorde.filter((id) => findList(id));
+    const tabElementen = [];
+
+    for (const id of kandidaatIds) {
       const l = findList(id);
       if (!l) continue;
       const tab = document.createElement("button");
@@ -2076,6 +2090,7 @@ function start() {
       });
 
       el.listTabs.appendChild(tab);
+      tabElementen.push({ id, tab });
     }
 
     const listsBtnTab = document.createElement("button");
@@ -2092,7 +2107,31 @@ function start() {
       updateDeletedView();
     });
     el.listTabs.appendChild(listsBtnTab);
+
+    // Passend maken: zolang de tabbladen + de ☰-knop niet allemaal op één
+    // regel passen (dus zolang er, ook al staat overflow-x normaal op
+    // "auto", eigenlijk gescrold zou moeten worden), het LAATSTE tabblad
+    // weghalen — dat lijstje bestaat gewoon nog steeds, en staat dan
+    // sowieso (ook) in het ☰-paneel. "+1" als kleine marge tegen
+    // afrondingsverschillen die anders bij een exacte pasvorm per ongeluk
+    // toch nog één tabblad te veel zouden laten staan.
+    while (tabElementen.length > 0 && el.listTabs.scrollWidth > el.listTabs.clientWidth + 1) {
+      const laatste = tabElementen.pop();
+      laatste.tab.remove();
+    }
+
+    huidigeTabIds = tabElementen.map((t) => t.id);
   }
+
+  // Hoeveel tabbladen er op één regel passen kan veranderen zodra het
+  // scherm van formaat wisselt (venster verslepen, telefoon draaien) —
+  // dan opnieuw uitrekenen. Licht gedebounced, want "resize" kan tijdens
+  // het slepen van een vensterrand heel vaak achter elkaar afgaan.
+  let tabsResizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(tabsResizeTimer);
+    tabsResizeTimer = setTimeout(renderTabs, 150);
+  });
 
   function renderListsPanel() {
     if (!el.listsPanelList) return;
