@@ -717,6 +717,24 @@ function start() {
       target = { ...fallback, prive: false };
     }
 
+    // Als dit gewoon nog hetzelfde lijstje is dat al actief was, EN er ligt
+    // hier nog een net gedane, nog niet opgeslagen wijziging te wachten
+    // (saveTimer, zie scheduleSave/saveList) — dan NIET de werkvariabelen
+    // (items/favorieten/...) overschrijven met wat er net binnenkomt.
+    // Zonder deze check gebeurde dat namelijk bij ELKE onSnapshot, ook een
+    // die nergens mee te maken had (bijv. een ander lijstje terugzetten of
+    // definitief verwijderen, of een gezinslid dat een heel ANDER lijstje
+    // wijzigt) — en omdat een wijziging pas ná die 400ms écht wordt
+    // weggeschreven in "householdLijsten" (zie saveList), zou zo'n
+    // tussentijdse snapshot een net-gemaakte wijziging (een afgevinkt item,
+    // een naam, een favoriet, ...) stilletjes weer ongedaan maken, waarna
+    // de wachtende opslag die teruggedraaide stand vervolgens ook nog
+    // gewoon zelf opsloeg — de wijziging was dan blijvend kwijt, zonder
+    // enige foutmelding. De wachtende opslag stuurt straks de actuele
+    // stand toch zelf door; die hoeven we hier niet ook nog eens te
+    // forceren.
+    if (saveTimer && target.id === activeId) return;
+
     applyActiveTarget(target);
   }
 
@@ -803,7 +821,18 @@ function start() {
     const archivedLijsten = [];
     record.forEach(({ lijst, archief, tijd }, id) => {
       const steen = tombstones.get(id);
-      if (steen && steen.deletedForeverAt >= tijd) return; // definitief weg, niet laten herleven
+      // Zodra er een grafsteen is, wint die ALTIJD — ongeacht hoe nieuw het
+      // tijdstip van de binnenkomende versie is. Dit was eerder een
+      // vergelijking ("steen.deletedForeverAt >= tijd"), maar een toestel
+      // dat offline gewoon door bleef werken aan een inmiddels door een
+      // ander toestel definitief verwijderd lijstje, zou zo'n vergelijking
+      // op den duur altijd winnen (het eigen tijdstip loopt immers gewoon
+      // door terwijl je erin blijft werken) en het lijstje dus alsnog laten
+      // herleven — precies wat een grafsteen had moeten voorkomen.
+      // Lijst-id's zijn altijd verse crypto.randomUUID()'s, dus een
+      // grafsteen kan hierdoor nooit per ongeluk een legitiem HERGEBRUIKT
+      // id blokkeren — er bestaat geen "opnieuw aanmaken met hetzelfde id".
+      if (steen) return; // definitief weg, niet laten herleven
       (archief ? archivedLijsten : lijsten).push(lijst);
     });
 
