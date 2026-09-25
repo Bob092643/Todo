@@ -156,17 +156,18 @@ async function openListsPanel(page) {
     await page.waitForTimeout(100);
     check("K0b. De gevarenzone klapt open na een tik op de samenvatting", await page.isVisible("#delete-list-btn"));
 
-    // Verkeerde bevestigingstekst: niets gebeurt.
-    await withDialogQueue(page, ["prul"], async () => {
+    // Op Annuleren klikken: niets gebeurt (geen woord meer dat je hoeft te
+    // typen — gewoon een simpele OK/Annuleren-vraag).
+    await withDialogQueue(page, [false], async () => {
       await page.click("#delete-list-btn");
       await page.waitForTimeout(200);
     });
-    check("K1. Verkeerd getypte bevestiging verwijdert de lijst niet", (await page.textContent("#list")).includes("Belangrijk itempje"));
+    check("K1. Annuleren bij de bevestiging verwijdert de lijst niet", (await page.textContent("#list")).includes("Belangrijk itempje"));
 
-    // Juiste bevestigingstekst: lijst wordt verwijderd (en de app schakelt
-    // automatisch naar een nieuw, leeg standaard-lijstje, want dit was de
-    // enige lijst van dit gezinnetje).
-    await withDialogQueue(page, ["VERWIJDER"], async () => {
+    // Bevestigen: lijst wordt verwijderd (en de app schakelt automatisch
+    // naar een nieuw, leeg standaard-lijstje, want dit was de enige lijst
+    // van dit gezinnetje).
+    await withDialogQueue(page, [true], async () => {
       await page.click("#delete-list-btn");
       await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     });
