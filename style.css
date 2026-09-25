@@ -834,11 +834,23 @@ main {
   }
 }
 
-.item-meta {
-  margin-top: 6px;
-  padding: 0 2px;
-  color: var(--muted);
-  font-size: 0.75rem;
+/* Compact badge met initialen i.p.v. een hele regel "Toegevoegd door X" /
+   "Afgevinkt door X" — kleur per persoon (zie kleurVoor() in app.js), volledige
+   naam blijft beschikbaar via title/aria-label. */
+.attributie-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 3px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
 }
 
 .info-content {
