@@ -85,6 +85,24 @@ function start() {
 
   const DEFAULT_LIST_NAME = "Onze lijst";
 
+  // Welk item-actiemenu ("⋯") nu openstaat (of null). Bewaard op module-
+  // niveau (niet als lokale DOM-state) zodat het openblijft over een
+  // render() heen (bijv. na een klik op een van de acties erin), en met
+  // een document-brede klik dichtgaat zodra je ergens anders klikt. Moet
+  // hier, vóór de sync-opzet verderop, gedeclareerd worden: die kan (via
+  // de eerste snapshot) meteen synchroon een render() aanroepen, die op
+  // zijn beurt deze variabele al leest.
+  let openItemMenuId = null;
+
+  // Kleurenpalet voor de "wie"-badges (zie kleurVoor()/maakAttributieBadge()
+  // verderop) — moet net als openItemMenuId hierboven al vroeg bestaan,
+  // want diezelfde meteen-synchrone eerste render() kan al een badge willen
+  // tekenen.
+  const BADGE_KLEUREN = [
+    "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6",
+    "#3b82f6", "#6366f1", "#a855f7", "#ec4899", "#64748b",
+  ];
+
   // ============================================================
   // Lokale (per-toestel) opslag: privé lijstjes, tabblad-voorkeuren
   // (vastgepind/volgorde), laatst-gezien-tijdstippen, en de "oude"
@@ -1201,11 +1219,10 @@ function start() {
   // ============================================================
   let sleepState = null;
 
-  // Welk item-actiemenu ("⋯") nu openstaat (of null). Bewaard op module-
-  // niveau (niet als lokale DOM-state) zodat het openblijft over een
-  // render() heen (bijv. na een klik op een van de acties erin), en met
-  // een document-brede klik dichtgaat zodra je ergens anders klikt.
-  let openItemMenuId = null;
+  // Welk item-actiemenu ("⋯") nu openstaat (of null, zie ook de declaratie
+  // hierboven aan het begin van start() — die moet vóór de eerste
+  // (soms synchrone) render() staan, anders kan lezen hier nog in de
+  // "temporal dead zone" van deze `let` terechtkomen).
   document.addEventListener("click", () => {
     if (openItemMenuId !== null) {
       openItemMenuId = null;
@@ -1363,7 +1380,56 @@ function start() {
     });
   }
 
-  function buildItemRow(item, { showMoveButtons }) {
+  // Compacte weergave van "wie": een klein rond badge met (zo kort mogelijk
+  // unieke) initialen in plaats van een hele regel "Toegevoegd door X" /
+  // "Afgevinkt door X" — dat nam te veel ruimte in terwijl het niet zoveel
+  // toevoegde. Bij twee mensen met dezelfde eerste letter krijgen beiden
+  // vanzelf 2 (of zo nodig meer) letters, zodat ze uit elkaar te houden
+  // blijven. (Het kleurenpalet zelf staat hierboven, vroeg in start().)
+  function alleBekendeNamen() {
+    const namen = new Set();
+    const voegToe = (lijst) => {
+      for (const it of [...(lijst.items || []), ...(lijst.archivedItems || [])]) {
+        if (it.createdBy) namen.add(it.createdBy);
+        if (it.doneBy) namen.add(it.doneBy);
+        if (it.bezigDoor) namen.add(it.bezigDoor);
+      }
+    };
+    householdLijsten.forEach(voegToe);
+    priveLijsten.forEach(voegToe);
+    voegToe({ items, archivedItems }); // de actieve lijst zelf
+    return namen;
+  }
+
+  function initialenVoor(naam, alleNamen) {
+    const andere = [...alleNamen].filter((n) => n !== naam);
+    let lengte = 1;
+    while (
+      lengte < naam.length &&
+      andere.some((n) => n.slice(0, lengte).toLowerCase() === naam.slice(0, lengte).toLowerCase())
+    ) {
+      lengte++;
+    }
+    return naam.slice(0, lengte).toUpperCase();
+  }
+
+  function kleurVoor(naam) {
+    let hash = 0;
+    for (let i = 0; i < naam.length; i++) hash = (hash * 31 + naam.charCodeAt(i)) >>> 0;
+    return BADGE_KLEUREN[hash % BADGE_KLEUREN.length];
+  }
+
+  function maakAttributieBadge(naam, alleNamen, titel) {
+    const badge = document.createElement("span");
+    badge.className = "attributie-badge";
+    badge.textContent = initialenVoor(naam, alleNamen);
+    badge.style.background = kleurVoor(naam);
+    badge.title = titel;
+    badge.setAttribute("aria-label", titel);
+    return badge;
+  }
+
+  function buildItemRow(item, { showMoveButtons, alleNamen }) {
     const li = document.createElement("li");
     li.className = item.done ? "done" : "";
     li.dataset.id = item.id;
@@ -1415,6 +1481,12 @@ function start() {
     text.textContent = item.text;
 
     row.append(check, text);
+
+    const attributieNaam = item.done ? item.doneBy : item.createdBy;
+    if (attributieNaam) {
+      const titel = item.done ? `Afgevinkt door ${attributieNaam}` : `Toegevoegd door ${attributieNaam}`;
+      row.append(maakAttributieBadge(attributieNaam, alleNamen, titel));
+    }
 
     if (showMoveButtons) {
       const handle = document.createElement("button");
@@ -1483,13 +1555,17 @@ function start() {
         `${item.text} ${item.bezig ? "niet meer op 'bezig' zetten" : "op 'bezig' zetten"}`
       );
       bezigBtn.addEventListener("click", () => {
+        openItemMenuId = null;
         if (item.bezig) {
           delete item.bezig;
           delete item.bezigNotitie;
           delete item.bezigDoor;
         } else {
           const notitie = prompt(`Kort notitie bij "${item.text}" (mag leeg blijven):`, "");
-          if (notitie === null) return; // geannuleerd: niks aanpassen
+          if (notitie === null) {
+            render(); // geannuleerd: niks aanpassen, menu wel sluiten
+            return;
+          }
           item.bezig = true;
           item.bezigNotitie = notitie.trim() || null;
           if (getMyName()) item.bezigDoor = getMyName();
@@ -1549,16 +1625,6 @@ function start() {
       }
     }
 
-    const attributionText = item.done
-      ? item.doneBy && `Afgevinkt door ${item.doneBy}`
-      : item.createdBy && `Toegevoegd door ${item.createdBy}`;
-    if (attributionText) {
-      const meta = document.createElement("div");
-      meta.className = "item-meta";
-      meta.textContent = attributionText;
-      li.append(meta);
-    }
-
     if (!item.done && !item.staleMuted && item.createdAt && Date.now() - item.createdAt > ARCHIVE_MS) {
       const stale = document.createElement("div");
       stale.className = "item-stale";
@@ -1591,6 +1657,7 @@ function start() {
     el.emptyHint.hidden = items.length > 0;
     renderSnelToevoegen();
 
+    const alleNamen = alleBekendeNamen();
     const active = items.filter((i) => !i.done);
     const done = items.filter((i) => i.done);
     const pinnedActive = active.filter((i) => i.pinned);
@@ -1604,11 +1671,11 @@ function start() {
     }
 
     pinnedActive.forEach((item) => {
-      el.list.appendChild(buildItemRow(item, { showMoveButtons: true }));
+      el.list.appendChild(buildItemRow(item, { showMoveButtons: true, alleNamen }));
     });
 
     normalActive.forEach((item) => {
-      el.list.appendChild(buildItemRow(item, { showMoveButtons: true }));
+      el.list.appendChild(buildItemRow(item, { showMoveButtons: true, alleNamen }));
     });
 
     if (active.length > 0 && done.length > 0) {
@@ -1619,7 +1686,7 @@ function start() {
     }
 
     done.forEach((item) => {
-      el.list.appendChild(buildItemRow(item, { showMoveButtons: false }));
+      el.list.appendChild(buildItemRow(item, { showMoveButtons: false, alleNamen }));
     });
 
     knownIds = new Set(items.map((i) => i.id));
