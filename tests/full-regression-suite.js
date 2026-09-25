@@ -328,9 +328,20 @@ async function withServer(root, fn) {
   // ============================================================
   // H. Volgorde bepaalt de tabbladen (geen apart "vastpinnen" meer) en het
   // "iets nieuws"-teken
+  //
+  // Hoeveel lijstjes er als tabblad passen is sinds kort dynamisch (hangt
+  // af van de beschikbare breedte, zie renderTabs() in app.js), niet meer
+  // een vast aantal van 3. Om deze sectie's verhaal (2 passen, 3 passen,
+  // een 4e nét niet meer) toch voorspelbaar te kunnen testen, gebruiken we
+  // hier bewust een smal (mobiel-achtig) viewport van 400px: bij die
+  // breedte passen "Onze lijst"/"Tweede lijst"/"Derde lijst" nog precies
+  // op de regel, maar "Vierde lijst" niet meer (uitgeprobeerd/bevestigd op
+  // meerdere breedtes — zie ook verify-dynamische-tabbladen.js voor een
+  // test die de breedte-afhankelijkheid zelf, i.p.v. een vast aantal,
+  // rechtstreeks controleert).
   // ============================================================
   await withServer(configuredRoot, async (base) => {
-    const ctx = await browser.newContext();
+    const ctx = await browser.newContext({ viewport: { width: 400, height: 720 } });
     const page1 = await ctx.newPage();
     await page1.goto(`${base}/index.html?lijst=volgorde-test`);
     await page1.waitForSelector("#app:not([hidden])");
