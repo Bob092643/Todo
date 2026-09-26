@@ -1,13 +1,7 @@
-// Extra tests voor een paar plekken die de bestaande testreeksen nog niet
-// dekten, na de tabbladen-op-volgorde-redesign en de tombstone-fix:
-// 1. Oude volgorde-data (nog in het { id, pinned } formaat) laadt netjes.
-// 2. Een lijstje dat op toestel A definitief verwijderd is, komt niet
-//    terug als toestel B (met een eigen, iets verouderde lokale kopie)
-//    daarna zelf ook nog eens opslaat.
-// 3. Een grafsteen (tombstone) van een definitieve verwijdering wordt na
-//    30 dagen automatisch opgeruimd (net als het archief zelf).
-// 4. Je allerlaatste lijstje verwijderen terwijl het een PRIVÉ lijstje is
-//    (en er ook geen gedeeld lijstje meer over is) geeft geen leeg scherm.
+// Extra dekking: oud-formaat volgorde-data laadt netjes, een definitief
+// verwijderd lijstje blijft weg ook na een save door een niet-bijgewerkt
+// toestel, grafstenen worden na 30 dagen opgeruimd, en je allerlaatste
+// (privé) lijstje verwijderen geeft geen leeg scherm.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -64,9 +58,7 @@ async function openDangerZone(page) {
     await page.waitForSelector("#lists-panel:not([hidden])");
   }
 
-  // ============================================================
   // O. Oude { id, pinned }-volgorde uit localStorage blijft werken
-  // ============================================================
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -77,8 +69,6 @@ async function openDangerZone(page) {
     await page.waitForSelector("#app:not([hidden])");
     await page.waitForTimeout(200);
 
-    // Handmatig het OUDE volgorde-formaat in localStorage zetten, zoals
-    // een bestaand toestel dat al had vóór deze update.
     const eersteId = await page.evaluate(() => {
       const raw = localStorage.getItem("mockdoc:lists/migratie-volgorde-test");
       const data = JSON.parse(raw);
@@ -102,10 +92,7 @@ async function openDangerZone(page) {
     await ctx.close();
   }
 
-  // ============================================================
-  // P. Definitief verwijderen: komt het lijstje niet terug via een ANDER,
-  //    nog niet bijgewerkt toestel dat daarna ook nog eens opslaat?
-  // ============================================================
+  // P. Definitief verwijderen: komt het lijstje niet terug via een ander, nog niet bijgewerkt toestel dat daarna opslaat?
   {
     const ctx = await browser.newContext(); // 1 context = gedeelde mock-cloud
     const codeP = "tombstone-cross-device-test";
@@ -115,15 +102,11 @@ async function openDangerZone(page) {
     await pageA.waitForSelector("#app:not([hidden])");
     await pageA.waitForTimeout(200);
 
-    // Toestel B opent dezelfde lijst óók, zodat het zijn eigen lokale kopie
-    // van householdLijsten/-ArchivedLijsten heeft (nog van vóór de
-    // verwijdering door A).
-    const pageB = await ctx.newPage();
+    const pageB = await ctx.newPage(); // B's eigen lokale kopie, nog van vóór A's verwijdering
     await pageB.goto(`${base}/index.html?lijst=${codeP}`);
     await pageB.waitForSelector("#app:not([hidden])");
     await pageB.waitForTimeout(200);
 
-    // Toestel A: het lijstje archiveren én meteen definitief verwijderen.
     await pageA.click("#archive-btn");
     await openDangerZone(pageA);
     await withDialogQueue(pageA, [true, "Vervangend lijstje op A", true], async () => {
@@ -135,17 +118,12 @@ async function openDangerZone(page) {
     await pageA.click('#lists-panel-archived button:has-text("Verwijder definitief")');
     await pageA.waitForTimeout(300);
 
-    // Toestel B heeft dit allemaal niet gezien (geen reload/onSnapshot-tik
-    // hoeven te doen in de mock, want elke pagina luistert al live mee via
-    // BroadcastChannel) — simuleer nu dat B, met zijn (mogelijk nog even
-    // "oude") lokale stand, zelf ook een save doet (bijv. een naam-tikje).
-    await pageB.waitForTimeout(300); // even de kans geven de live-update al binnen te krijgen
+    // B simuleert nu, met zijn mogelijk nog niet bijgewerkte lokale stand, zelf ook een save.
+    await pageB.waitForTimeout(300);
     await pageB.fill("#new-item", "Iets van toestel B");
     await pageB.click("button[type=submit]");
     await pageB.waitForTimeout(400);
 
-    // Nu bij A herladen: staat het definitief verwijderde lijstje er nog
-    // steeds niet, ook na deze extra save-actie van B?
     await pageA.click("#lists-btn");
     await pageA.waitForSelector("#lists-panel:not([hidden])");
     const archivedTextA = await pageA.textContent("#lists-panel-archived-section");
@@ -162,10 +140,7 @@ async function openDangerZone(page) {
     await ctx.close();
   }
 
-  // ============================================================
-  // Q. Een grafsteen (tombstone) van 30+ dagen geleden wordt automatisch
-  //    opgeruimd (net als het archief zelf)
-  // ============================================================
+  // Q. Een grafsteen (tombstone) van 30+ dagen geleden wordt automatisch opgeruimd
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -183,8 +158,6 @@ async function openDangerZone(page) {
     await page.reload();
     await page.waitForSelector("#app:not([hidden])");
     await page.waitForTimeout(300);
-    // Een kleine wijziging forceren zodat er een save (en dus een
-    // schrijfmoment van de opgeschoonde tombstones-lijst) plaatsvindt.
     await page.fill("#new-item", "Iets toevoegen om een save te triggeren");
     await page.click("button[type=submit]");
     await page.waitForTimeout(400);
@@ -198,10 +171,7 @@ async function openDangerZone(page) {
     await ctx.close();
   }
 
-  // ============================================================
-  // R. Je allerlaatste lijstje verwijderen terwijl het een PRIVÉ lijstje
-  //    is (en er ook geen gedeeld lijstje meer over is)
-  // ============================================================
+  // R. Je allerlaatste lijstje verwijderen terwijl het een privé lijstje is (geen gedeeld lijstje meer over)
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -209,7 +179,6 @@ async function openDangerZone(page) {
     await page.waitForSelector("#app:not([hidden])");
     await page.waitForTimeout(200);
 
-    // Eerst een privé lijstje erbij (naast het standaard gedeelde).
     await page.click("#lists-btn");
     await page.waitForSelector("#lists-panel:not([hidden])");
     await withDialogQueue(page, [true, "Enige privé lijstje", false], async () => {
@@ -218,10 +187,7 @@ async function openDangerZone(page) {
     });
     await page.waitForSelector("#app:not([hidden])");
 
-    // Nu het gedeelde lijstje verwijderen — de privé lijst bestaat dan nog
-    // (rest.length > 0), dus de app schakelt daar gewoon automatisch naartoe.
-    // (Het aanmaken hierboven sloot het ☰-paneel alweer, dus opnieuw openen.)
-    await page.click("#lists-btn");
+    await page.click("#lists-btn"); // ☰-paneel was gesloten na het aanmaken hierboven
     await page.waitForSelector("#lists-panel:not([hidden])");
     await page.click(`.lists-panel-name:has-text("Onze lijst")`);
     await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
@@ -235,9 +201,6 @@ async function openDangerZone(page) {
     await page.waitForSelector("#app:not([hidden])");
     check("R1. Na het verwijderen van het gedeelde lijstje blijft de privé lijst (nog steeds de enige) actief", await page.isVisible("#list-lock-icon"));
 
-    // En nu DIT privé lijstje (de enige die er nog is, gedeeld én privé) ook
-    // verwijderen — dat raakt de server niet, dus zonder een expliciete
-    // vervang-actie zou het scherm hier leeg kunnen blijven.
     await page.click("#archive-btn");
     await openDangerZone(page);
     await withDialogQueue(page, [true, "Weer een nieuw lijstje", true], async () => {

@@ -1,7 +1,4 @@
-// Quick regression check for the localStorage fallback fix:
-// opening the app WITHOUT ?lijst= (simulating the installed-icon / manifest
-// start_url case) after already having visited it WITH a code, should reuse
-// the same list instead of creating a brand new one.
+// Verifieert dat de app zonder ?lijst= (geïnstalleerd icoontje) de eerder bezochte code hergebruikt i.p.v. een nieuwe te verzinnen.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -35,15 +32,12 @@ const server = http.createServer((req, res) => {
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  // 1) Eerste bezoek MET een code in de link (zoals via "Deel met gezin").
   const firstUrl = `${base}/index.html?lijst=test-code-AAA`;
   await page.goto(firstUrl);
   await page.waitForSelector("#app:not([hidden])");
   const urlAfterFirstVisit = page.url();
 
-  // 2) Tweede bezoek ZONDER code (simuleert het geïnstalleerde icoontje dat
-  //    altijd het kale start_url gebruikt).
-  await page.goto(`${base}/index.html`);
+  await page.goto(`${base}/index.html`); // zonder code, zoals het geïnstalleerde icoontje
   await page.waitForSelector("#app:not([hidden])");
   const urlAfterSecondVisit = page.url();
 

@@ -1,7 +1,5 @@
-// Boodschappenlijst — gedeeld gezinnetje via Firestore, geen login nodig.
-// Eén code (?lijst=code) is voortaan een heel "gezinnetje": daaronder
-// kunnen meerdere losse lijstjes hangen, gedeeld (voor iedereen met de
-// code) of privé (alleen op dit ene toestel).
+// Boodschappenlijst — gedeeld via Firestore per gezinscode (?lijst=code);
+// elke code kan meerdere lijstjes bevatten, gedeeld of privé (per toestel).
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import {
@@ -32,9 +30,7 @@ import { normaliseerTekst } from "./tekst.js";
 const CHECK_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
 
-// Klokje voor de "bezig"-knop bij een item — los van het gewone vinkje
-// (open/afgevinkt): een extra, apart te zetten seintje dat iemand hiermee
-// bezig is, zonder dat het item daarmee al klaar is.
+// "Bezig"-icoon: los van het afvink-vinkje, geeft alleen aan dat iemand ermee bezig is.
 const CLOCK_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l3 2"></path></svg>';
 
@@ -59,70 +55,41 @@ if (!CONFIG.firebaseConfig || CONFIG.firebaseConfig.apiKey === "VUL-HIER-IN") {
 
 function start() {
   const firebaseApp = initializeApp(CONFIG.firebaseConfig);
-  // Bewaart de laatst-gesynchroniseerde stand ook lokaal (IndexedDB), niet
-  // alleen in het geheugen van de pagina. Zonder dit zou een herlaad-beurt
-  // zonder internet (bijv. in de winkel, weinig bereik) een helemaal lege
-  // lijst laten zien tot de verbinding terug is — mét deze instelling
-  // verschijnt gewoon de laatst bekende lijst meteen, en werkt afvinken /
-  // toevoegen ook zonder verbinding gewoon door (de wijzigingen wachten
-  // dan lokaal totdat er weer bereik is, en gaan er dan vanzelf uit).
-  // "MultipleTabManager" is nodig omdat iemand dit lijstje soms in meer
-  // dan één tabblad tegelijk open heeft staan — zonder die instelling zou
-  // alleen het eerst-geopende tabblad deze lokale opslag mogen gebruiken.
+  // IndexedDB-cache: app werkt ook offline door met de laatst bekende stand.
+  // MultipleTabManager omdat dit lijstje in meerdere tabbladen tegelijk open kan staan.
   let db;
   try {
     db = initializeFirestore(firebaseApp, {
       localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
     });
   } catch (e) {
-    // Kan in zeldzame gevallen mislukken (bijv. privénavigatie op sommige
-    // toestellen, waar IndexedDB niet of nauwelijks beschikbaar is) — dan
-    // gewoon terugvallen op de gewone werking van hiervoor (alles alleen
-    // in het geheugen van de pagina, geen lokale opslag na herladen).
+    // Kan mislukken (bijv. privénavigatie zonder IndexedDB) — val terug op geheugen-only.
     console.warn("Kon geen lokale (offline) opslag instellen, val terug op alleen-geheugen:", e);
     db = initializeFirestore(firebaseApp, {});
   }
 
   const DEFAULT_LIST_NAME = "Onze lijst";
 
-  // Welk item-actiemenu ("⋯") nu openstaat (of null). Bewaard op module-
-  // niveau (niet als lokale DOM-state) zodat het openblijft over een
-  // render() heen (bijv. na een klik op een van de acties erin), en met
-  // een document-brede klik dichtgaat zodra je ergens anders klikt. Moet
-  // hier, vóór de sync-opzet verderop, gedeclareerd worden: die kan (via
-  // de eerste snapshot) meteen synchroon een render() aanroepen, die op
-  // zijn beurt deze variabele al leest.
+  // Welk item-actiemenu ("⋯") openstaat. Moet vóór de sync-opzet hieronder
+  // gedeclareerd zijn: die kan meteen synchroon een eerste render() triggeren.
   let openItemMenuId = null;
 
-  // Kleurenpalet voor de "wie"-badges (zie kleurVoor()/maakAttributieBadge()
-  // verderop) — moet net als openItemMenuId hierboven al vroeg bestaan,
-  // want diezelfde meteen-synchrone eerste render() kan al een badge willen
-  // tekenen.
+  // Kleurenpalet voor de "wie"-badges — moet, net als openItemMenuId, al
+  // bestaan vóór de eerste (mogelijk synchrone) render().
   const BADGE_KLEUREN = [
     "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6",
     "#3b82f6", "#6366f1", "#a855f7", "#ec4899", "#64748b",
   ];
 
-  // Door mensen zelf gekozen badge-kleur, per naam ({ naam: "#hex" }) —
-  // gedeeld binnen het hele gezinnetje (zie badgeKleurenOpslaan()) en
-  // gelezen door kleurVoor() als voorkeur boven de automatische kleur
-  // hierboven. Moet, om dezelfde reden als openItemMenuId/BADGE_KLEUREN,
-  // hier al vroeg bestaan.
+  // Zelf gekozen badge-kleur per naam, gedeeld binnen het gezinnetje.
   let badgeKleuren = {};
 
-  // Welke lijst-id's er NU daadwerkelijk als tabblad bovenin staan (zie
-  // renderTabs() verderop, die dit na elke render opnieuw uitrekent aan de
-  // hand van de beschikbare breedte — geen vast aantal meer). Wordt ook
-  // gelezen door renderListsPanel() (voor het "tabblad"-label per rij), en
-  // moet daarom, om dezelfde reden als hierboven, al vroeg bestaan.
+  // Lijst-id's die NU als tabblad staan (herberekend door renderTabs() op
+  // basis van beschikbare breedte); ook gebruikt door renderListsPanel().
   let huidigeTabIds = [];
 
-  // ============================================================
-  // Lokale (per-toestel) opslag: privé lijstjes, tabblad-voorkeuren
-  // (vastgepind/volgorde), laatst-gezien-tijdstippen, en de "oude"
-  // sleutels die gebruikt worden om bestaande gebruikers naadloos over
-  // te zetten naar dit nieuwe systeem.
-  // ============================================================
+  // Lokale (per-toestel) opslag: privé lijstjes, tabblad-volgorde,
+  // laatst-gezien-tijdstippen, en oude sleutels voor migratie.
   const PRIVE_KEY = "boodschappenlijst:prive-lijsten";
   const PRIVE_ARCHIEF_KEY = "boodschappenlijst:prive-archief";
   const VOLGORDE_KEY = "boodschappenlijst:lijst-volgorde";
@@ -130,12 +97,8 @@ function start() {
   const GEZIEN_KEY = "boodschappenlijst:laatst-gezien";
   const ACTIVE_KEY = "boodschappenlijst:actieve-lijst";
   const TABS_GEMIGREERD_KEY = "boodschappenlijst:tabs-gemigreerd";
-  // Uit de allereerste versie (nog maar 1 lijstje per toestel, geen
-  // tabbladen).
-  const OLD_STORAGE_KEY = "boodschappenlijst:laatste-lijst-id";
-  // Uit de vorige versie (wél tabbladen, maar elk tabblad een eigen, apart
-  // gedeelde code i.p.v. samen onder 1 gezinscode).
-  const OLD_LISTS_KEY = "boodschappenlijst:lijsten";
+  const OLD_STORAGE_KEY = "boodschappenlijst:laatste-lijst-id"; // uit de allereerste versie (1 lijstje, geen tabbladen)
+  const OLD_LISTS_KEY = "boodschappenlijst:lijsten"; // uit de vorige versie (eigen code per tabblad)
 
   function loadJSON(key, fallback) {
     try {
@@ -157,20 +120,12 @@ function start() {
 
   let priveLijsten = loadJSON(PRIVE_KEY, []);
   let priveArchief = loadJSON(PRIVE_ARCHIEF_KEY, []);
-  // volgorde: array van lijst-id's, in jouw eigen volgorde voor dit
-  // toestel. Zoveel mogelijk hiervan (van voren af aan) staan als tabblad
-  // bovenin — hoeveel dat er zijn hangt af van de beschikbare breedte en
-  // hoe lang de naampjes zijn (zie renderTabs() verderop), geen vast
-  // aantal meer. De rest vind je terug in het ☰-paneel. Geen apart
-  // "vastpinnen" meer — de volgorde zelf bepaalt alles (zie
-  // renderTabs/renderListsPanel verderop).
+  // volgorde: lijst-id's in eigen volgorde; hoeveel als tabblad passen hangt
+  // af van beschikbare breedte (zie renderTabs()), de rest staat in het ☰-paneel.
   let volgorde = loadJSON(VOLGORDE_KEY, []).map((v) => (typeof v === "string" ? v : v.id));
   let laatstGezien = loadJSON(GEZIEN_KEY, {});
-  // Gedeelde lijstjes die je op dit toestel bewust "verborgen" hebt (via het
-  // ✕-knopje in het ☰-paneel) — ze bestaan nog gewoon (voor iedereen met de
-  // code), maar mogen niet automatisch weer in `volgorde` terugkomen zolang
-  // ze hier staan. Zie ook de "Verborgen op dit toestel"-lijst in het
-  // ☰-paneel, waar je zo'n lijstje weer kunt terugzetten.
+  // Lijstjes die je hier bewust verborgen hebt — blijven bestaan maar komen
+  // niet vanzelf terug in `volgorde` zolang ze hier staan.
   let verborgenLijsten = loadJSON(VERBORGEN_KEY, []);
 
   function savePrive() { saveJSON(PRIVE_KEY, priveLijsten); }
@@ -187,11 +142,7 @@ function start() {
     }
   }
 
-  // Zorgt dat een lijst-id in de lokale volgorde-lijst staat. Komt
-  // standaard achteraan (dus pas een tabblad zodra 'ie, door zelf te
-  // verschuiven of doordat er lijstjes vóór 'm wegvallen, alsnog binnen de
-  // beschikbare breedte past) — behalve het eerste lijstje ooit, dat komt
-  // vanzelf op plek 1 terecht.
+  // Zorgt dat een lijst-id in de lokale volgorde staat (komt standaard achteraan).
   function ensureInVolgorde(id) {
     if (volgorde.includes(id)) return;
     volgorde.push(id);
@@ -203,16 +154,12 @@ function start() {
     saveVolgorde();
   }
 
-  // ============================================================
   // Welk gezinnetje (code) en welk lijstje daarbinnen staat er nu open.
-  // ============================================================
   const HOUSEHOLD_KEY = "boodschappenlijst:gezins-code";
   const params = new URLSearchParams(location.search);
   let householdCode = params.get("lijst");
 
-  // Onthouden welke gezinscode dit toestel voor het laatst gebruikte — zo
-  // blijft, net als voorheen, de bewaarde code gebruikt als de app zonder
-  // "?lijst=" wordt geopend (bijv. vanaf een geïnstalleerd app-icoontje).
+  // Onthouden voor als de app zonder "?lijst=" wordt geopend (bijv. via app-icoontje).
   let bewaardeCode = null;
   try {
     bewaardeCode = localStorage.getItem(HOUSEHOLD_KEY);
@@ -228,8 +175,7 @@ function start() {
     /* geen probleem */
   }
 
-  // Migratie vanaf de vorige tabbladen-versie (losse codes per tabblad).
-  const oudeTabs = loadJSON(OLD_LISTS_KEY, null); // array van {id, naam} of null
+  const oudeTabs = loadJSON(OLD_LISTS_KEY, null); // array van {id, naam} of null, vorige tabbladen-versie
 
   if (!householdCode) {
     householdCode = bewaardeCode || oudeMigratieId || (oudeTabs && oudeTabs[0] && oudeTabs[0].id) || crypto.randomUUID();
@@ -246,41 +192,24 @@ function start() {
 
   const householdRef = doc(db, "lists", householdCode);
 
-  // Live-gehouden kopie van wat er in het gezinnetje-document staat —
-  // nodig om bij het opslaan van 1 lijstje de andere (mogelijk ondertussen
-  // door iemand anders gewijzigde) lijstjes niet per ongeluk te
-  // overschrijven.
+  // Live kopie van het gezinnetje-document, nodig om bij het opslaan van 1
+  // lijstje de anderen (mogelijk elders gewijzigd) niet te overschrijven.
   let householdLijsten = [];
   let householdArchivedLijsten = [];
-  // "Grafstenen": id's van lijstjes die definitief (voorbij het archief)
-  // verwijderd zijn, met het tijdstip waarop dat gebeurde. Zonder dit zou
-  // mergeHouseholdState() een definitief verwijderd lijstje weer tevoorschijn
-  // toveren zodra de server nog de oude (nog niet definitief-verwijderde)
-  // versie ervan bevat — precies zoals een gewone "iets is gewijzigd"-merge
-  // een echte, bewuste verwijdering niet van "ik weet dit lijstje nog niet"
-  // kan onderscheiden. Wordt net als lijsten/archivedLijsten meegestuurd en
-  // -ontvangen, en na 30 dagen automatisch opgeruimd (net als het archief
-  // zelf, zie purgeExpiredLists).
+  // "Grafstenen": definitief verwijderde lijstjes + tijdstip. Zonder dit zou
+  // mergeHouseholdState() zo'n lijstje weer laten herleven zodra de server nog
+  // een oudere, niet-verwijderde kopie heeft. Na 30 dagen opgeruimd (purgeExpiredLists).
   let householdTombstones = [];
-  // Zorgt dat opeenvolgende saveHousehold()-aanroepen netjes op hun beurt
-  // wachten in plaats van elkaar in de weg te zitten (zie saveHousehold
-  // verderop). Moet hier al bestaan, vóór de live-koppeling (onSnapshot)
-  // hieronder wordt gestart — die kan namelijk METEEN, nog synchroon
-  // tijdens het opstarten, een eerste saveHousehold() aanroepen.
+  // Zet opeenvolgende saveHousehold()-aanroepen in een wachtrij i.p.v. elkaar
+  // in de weg te zitten. Moet vóór de onSnapshot-koppeling hieronder bestaan,
+  // die kan meteen synchroon een eerste saveHousehold() aanroepen.
   let householdSaveChain = Promise.resolve();
 
   let items = [];
-  // Wat er nu in het zoekveldje staat (leeg = geen filter actief). Puur
-  // schermweergave, hoeft niet bewaard te worden.
-  let zoekTerm = "";
-  // Snel toevoegen: favorieten zijn zelf gekozen ({id, tekst}, blijft staan
-  // tot iemand 'm weer verwijdert) en itemFrequentie telt gewoon hoe vaak
-  // een itemnaam (genormaliseerd -> {aantal, tekst}) is toegevoegd, zodat
-  // vaak-toegevoegde dingen vanzelf als suggestie verschijnen zonder dat
-  // iemand ze apart hoeft aan te vinken. "tekst" bewaart daarbij steeds de
-  // laatst getypte schrijfwijze (hoofdletters etc.), zodat de suggestie er
-  // ook nog netjes uitziet nadat alle exemplaren allang zijn afgevinkt en
-  // verwijderd. Beide reizen mee met het lijstje.
+  let zoekTerm = ""; // zoekveldje, puur schermweergave
+  // Snel toevoegen: favorieten zijn zelf gekozen, itemFrequentie telt hoe
+  // vaak een (genormaliseerde) itemnaam is toegevoegd zodat vaak-gebruikte
+  // dingen vanzelf als suggestie verschijnen. Reizen mee met het lijstje.
   let favorieten = [];
   let itemFrequentie = {};
   const SNEL_TOEVOEGEN_MAX = 10;
@@ -298,11 +227,7 @@ function start() {
     listName = name && name.trim() ? name.trim() : DEFAULT_LIST_NAME;
     el.listNameEl.textContent = listName;
     document.title = listName;
-    // Het archief is centraal (alle lijstjes tegelijk, zie renderArchive()),
-    // maar "dit lijstje verwijderen" in de gevarenzone daaronder werkt nog
-    // steeds alleen op de actieve lijst — daarom hier expliciet noemen om
-    // welk lijstje het gaat, anders is dat in die centrale weergave niet
-    // meer vanzelfsprekend.
+    // "Lijstje verwijderen" werkt alleen op de actieve lijst, dus die hier expliciet noemen.
     if (el.dangerZoneLijstNaam) el.dangerZoneLijstNaam.textContent = `"${listName}"`;
   }
   setListName(DEFAULT_LIST_NAME);
@@ -311,8 +236,7 @@ function start() {
     if (el.lockIcon) el.lockIcon.hidden = !activePrive;
   }
 
-  // --- Alle bekende lijstjes bij elkaar (gedeeld + privé), voor tabbladen
-  //     en het "Lijstjes"-paneel. ---
+  // Alle bekende lijstjes (gedeeld + privé), voor tabbladen en het "Lijstjes"-paneel.
   function getAllLists() {
     return [
       ...householdLijsten.map((l) => ({ ...l, prive: false })),
@@ -330,10 +254,7 @@ function start() {
     return (l.updatedAt || 0) > gezien;
   }
 
-  // Een lijstje één plekje omhoog/omlaag in de volgorde — die volgorde
-  // bepaalt rechtstreeks welke lijstjes als tabblad bovenin staan (zoveel
-  // als er van voren af aan op één regel passen, zie renderTabs()) en
-  // welke alleen in het ☰-paneel te vinden zijn.
+  // Volgorde bepaalt welke lijstjes als tabblad staan (zie renderTabs()) en welke alleen in het ☰-paneel.
   function moveList(id, direction) {
     const myIndex = volgorde.indexOf(id);
     if (myIndex === -1) return;
@@ -349,14 +270,8 @@ function start() {
     const target = findList(id);
     if (!target) return;
 
-    // Rechtstreeks de gegevens verversen in plaats van de hele pagina
-    // opnieuw te laden — dat gaf voorheen heel eventjes een verkeerde
-    // (oude, of de standaard-placeholder) titel te zien terwijl de pagina
-    // aan het herladen was.
     applyActiveTarget(target);
-    // Anders denkt de "net toegevoegd"-animatie dat ALLE boodschappen van
-    // dit andere lijstje gloednieuw zijn (ze stonden immers niet in het
-    // vorige lijstje), en flitst alles even mee als "binnenkomend".
+    // Voorkomt dat de "net toegevoegd"-animatie alle items van dit andere lijstje als nieuw ziet.
     knownIds = new Set(items.map((i) => i.id));
 
     const p = new URLSearchParams(location.search);
@@ -365,10 +280,7 @@ function start() {
     params.set("actief", id);
     history.replaceState(null, "", `${location.pathname}?${p.toString()}`);
 
-    // "archiveOpen" bewust NIET meer resetten: het archief is sinds kort
-    // een centrale weergave over AL je lijstjes heen (zie renderArchive()),
-    // dus wisselen van "actief" lijstje op de achtergrond hoort je daar
-    // niet meer zomaar uit te knallen — dat viel eerder juist vervelend op.
+    // archiveOpen bewust niet resetten: archief is een centrale weergave over alle lijstjes.
     settingsOpen = false;
     listsOpen = false;
     updateDeletedView();
@@ -377,9 +289,7 @@ function start() {
     renderTabsAndPanel();
   }
 
-  // "Verberg dit lijstje voor mij" — alleen voor gedeelde lijstjes (privé
-  // lijstjes hebben geen link om ooit weer terug te vinden, dus die niet
-  // per ongeluk laten verdwijnen).
+  // Alleen gedeelde lijstjes verbergen — een privé lijstje kwijtraken zou onherstelbaar zijn.
   function hideList(id) {
     const l = findList(id);
     if (!l || l.prive) return;
@@ -409,7 +319,6 @@ function start() {
     }
   }
 
-  // Een eerder verborgen lijstje weer laten zien op dit toestel.
   function unhideList(id) {
     verborgenLijsten = verborgenLijsten.filter((v) => v !== id);
     saveVerborgen();
@@ -510,12 +419,6 @@ function start() {
   setSyncStatus("Verbinden...");
   setTimeout(askNameIfNeeded, 300);
 
-  // Duidelijk (en geruststellend, niet als een storing) laten zien
-  // wanneer dit toestel geen internet heeft: afvinken/toevoegen/etc.
-  // blijft gewoon werken (dankzij de lokale opslag hierboven), maar wordt
-  // dan pas echt met anderen gedeeld zodra er weer bereik is. Overschrijft
-  // bewust de normale status-tekst zolang je offline bent; zodra je weer
-  // online bent nemen de gewone save/sync-meldingen het vanzelf weer over.
   function updateOnlineStatus() {
     if (!navigator.onLine) {
       setSyncStatus("Offline — wijzigingen worden bewaard", "offline");
@@ -525,11 +428,7 @@ function start() {
   window.addEventListener("online", updateOnlineStatus);
   window.addEventListener("offline", updateOnlineStatus);
 
-  // ============================================================
-  // Eenmalige migratie van losse, eerder-bekende tabbladen (uit de vorige
-  // versie: elk tabblad een eigen, apart gedeelde code) naar dit
-  // gezinnetje. Draait maar 1 keer per toestel.
-  // ============================================================
+  // Eenmalige migratie van losse tabbladen (vorige versie, eigen code per tabblad) naar dit gezinnetje.
   async function migreerOudeTabs() {
     let gedaan = false;
     try {
@@ -583,9 +482,7 @@ function start() {
       const data = snap.exists() ? snap.data() : {};
 
       if (!data.lijsten) {
-        // Oude platte structuur (of nog helemaal leeg): omzetten naar het
-        // nieuwe formaat. Idempotent — zodra "lijsten" bestaat, gebeurt dit
-        // nooit meer, ook niet als 2 toestellen dit tegelijk tegenkomen.
+        // Oude platte structuur: eenmalig (idempotent) omzetten naar het nieuwe formaat.
         if (snap.exists() && (data.items || data.listName)) {
           const gemigreerdeLijst = {
             id: crypto.randomUUID(),
@@ -609,11 +506,7 @@ function start() {
           ];
           householdArchivedLijsten = [];
         }
-        // Niet wachten op een nieuwe snapshot-rondgang voor het eerste
-        // scherm (dat zou een onnodige vertraging geven) — meteen
-        // verderwerken met deze net-omgezette data, en op de achtergrond
-        // opslaan.
-        saveHousehold();
+        saveHousehold(); // op de achtergrond opslaan, niet wachten op de volgende snapshot
       } else {
         householdLijsten = data.lijsten;
         householdArchivedLijsten = data.archivedLijsten || [];
@@ -621,25 +514,13 @@ function start() {
       }
       badgeKleuren = data.badgeKleuren || {};
 
-      // Opgeruimde (>30 dagen oude) archief-lijstjes definitief weg.
       const purgedLijsten = purgeExpiredLists();
 
-      // Nu we het gezinnetje kennen: eenmalige migratie van losse oude
-      // tabbladen (mag pas ná de eerste succesvolle snapshot, anders weten
-      // we nog niet zeker of "lijsten" al bestond).
-      migreerOudeTabs();
+      migreerOudeTabs(); // pas hier mogelijk: moet weten of "lijsten" al bestond
 
-      // Zorg dat ELK gedeeld lijstje (dus ook eentje dat iemand anders op
-      // een ander toestel heeft aangemaakt en dat nu voor het eerst hier
-      // binnenkomt) in de lokale volgorde-lijst staat — anders bestaat het
-      // lijstje wel, maar duikt het nooit op in het ☰-paneel of als
-      // tabblad, want dat rendert uitsluitend op basis van `volgorde`.
-      // Alleen `resolveActiveList()` aanroepen dekte enkel het op dit
-      // toestel actieve lijstje, niet de rest.
-      // Behalve: een lijstje dat je hier bewust verborgen hebt mag NIET
-      // door deze automatische aanvulling meteen weer terugkomen — anders
-      // zou "verbergen" bij elke volgende sync (dus ook gewoon bij een
-      // herlaad van de pagina) vanzelf ongedaan gemaakt worden.
+      // Ook lijstjes die elders zijn aangemaakt in de lokale volgorde opnemen
+      // (renderTabs/renderListsPanel gebruiken alleen `volgorde`), behalve
+      // wat je hier bewust verborgen hebt.
       householdLijsten.forEach((l) => {
         if (!verborgenLijsten.includes(l.id)) ensureInVolgorde(l.id);
       });
@@ -669,9 +550,7 @@ function start() {
     }
   );
 
-  // Zet een gevonden lijstje als het actieve lijstje in de werkvariabelen
-  // (zonder verder iets te tekenen of op te slaan — dat doen de aanroepers
-  // hierna zelf, op het moment dat bij hen past).
+  // Zet target als actieve lijst in de werkvariabelen; tekent/slaat niets zelf op.
   function applyActiveTarget(target) {
     activeId = target.id;
     activePrive = !!target.prive;
@@ -681,10 +560,7 @@ function start() {
     archivedItems = target.archivedItems || [];
     setListName(target.naam);
     updateLockIcon();
-    // Actief geworden (bijv. omdat het de enige overgebleven lijst is, of
-    // via een link met "actief=" erin) betekent: niet meer "verborgen" —
-    // anders zou 'm nu wél zien als actieve lijst, maar 'm tegelijk ook nog
-    // in "Verborgen op dit toestel" tegenkomen.
+    // Actief geworden lijstje mag niet ook nog als "verborgen" te boek staan.
     if (verborgenLijsten.includes(activeId)) {
       verborgenLijsten = verborgenLijsten.filter((v) => v !== activeId);
       saveVerborgen();
@@ -696,10 +572,7 @@ function start() {
     saveGezien();
   }
 
-  // Bepaalt welk lijstje nu actief moet zijn, en laadt de bijbehorende
-  // items/naam in de werkvariabelen. Wordt na elke snapshot opnieuw
-  // gedraaid (goedkoop, en zo blijven we ook consistent als het huidige
-  // lijstje ondertussen ergens anders is verwijderd).
+  // Bepaalt welk lijstje actief moet zijn; draait na elke snapshot opnieuw.
   function resolveActiveList() {
     const gevraagdeId = params.get("actief") || localStorage.getItem(ACTIVE_KEY);
     let target = null;
@@ -708,31 +581,17 @@ function start() {
     if (!target) target = getAllLists()[0] || null;
 
     if (!target) {
-      // Kan alleen gebeuren als zowel gedeeld als privé helemaal leeg zijn
-      // (bijv. na het verwijderen van het allerlaatste lijstje) — dan
-      // meteen een nieuw standaard-lijstje aanmaken.
+      // Alleen mogelijk als gedeeld én privé helemaal leeg zijn: meteen een nieuw lijstje aanmaken.
       const fallback = { id: crypto.randomUUID(), naam: DEFAULT_LIST_NAME, items: [], archivedItems: [], updatedAt: Date.now() };
       householdLijsten.push(fallback);
       ensureInVolgorde(fallback.id);
       target = { ...fallback, prive: false };
     }
 
-    // Als dit gewoon nog hetzelfde lijstje is dat al actief was, EN er ligt
-    // hier nog een net gedane, nog niet opgeslagen wijziging te wachten
-    // (saveTimer, zie scheduleSave/saveList) — dan NIET de werkvariabelen
-    // (items/favorieten/...) overschrijven met wat er net binnenkomt.
-    // Zonder deze check gebeurde dat namelijk bij ELKE onSnapshot, ook een
-    // die nergens mee te maken had (bijv. een ander lijstje terugzetten of
-    // definitief verwijderen, of een gezinslid dat een heel ANDER lijstje
-    // wijzigt) — en omdat een wijziging pas ná die 400ms écht wordt
-    // weggeschreven in "householdLijsten" (zie saveList), zou zo'n
-    // tussentijdse snapshot een net-gemaakte wijziging (een afgevinkt item,
-    // een naam, een favoriet, ...) stilletjes weer ongedaan maken, waarna
-    // de wachtende opslag die teruggedraaide stand vervolgens ook nog
-    // gewoon zelf opsloeg — de wijziging was dan blijvend kwijt, zonder
-    // enige foutmelding. De wachtende opslag stuurt straks de actuele
-    // stand toch zelf door; die hoeven we hier niet ook nog eens te
-    // forceren.
+    // Als dit al het actieve lijstje was en er staat nog een niet-opgeslagen
+    // wijziging te wachten (saveTimer), de werkvariabelen niet overschrijven
+    // met wat net binnenkomt — anders kan een tussentijdse snapshot een verse,
+    // nog niet weggeschreven wijziging stilletjes weer ongedaan maken.
     if (saveTimer && target.id === activeId) return;
 
     applyActiveTarget(target);
@@ -752,31 +611,19 @@ function start() {
     }
   }
 
-  // Een wijziging wordt pas na 400ms opgeslagen (zodat snel achter elkaar
-  // typen niet voor elk toetsaanslag een aparte opslag geeft). Als iemand
-  // direct daarna de app wegklikt (van app wisselt, telefoon vergrendelt,
-  // tabblad sluit) vóórdat die 400ms voorbij zijn, zou die laatste
-  // wijziging anders verloren kunnen gaan. Daarom: zodra de app niet meer
-  // zichtbaar is, meteen een eventueel wachtende opslag alsnog uitvoeren.
+  // Wijzigingen worden pas na 400ms opgeslagen (debounce); als de app
+  // eerder verdwijnt (wisselt/vergrendelt/sluit) moet dat alsnog gebeuren.
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flushPendingSave();
   });
-  // "visibilitychange" vuurt betrouwbaar bij van-app-wisselen/vergrendelen,
-  // maar niet altijd bij het navigeren binnen hetzelfde tabblad (bijv. het
-  // wisselen van lijstje) — "pagehide" wél, dus als extra vangnet.
+  // "pagehide" als vangnet: "visibilitychange" vuurt niet altijd bij in-tab-navigatie.
   window.addEventListener("pagehide", () => {
     flushPendingSave();
   });
 
-  // Voegt onze eigen (mogelijk deels verouderde) stand van de lijstjes
-  // samen met de nieuwste stand op de server — lijstje voor lijstje, in
-  // plaats van in één keer de hele verzameling te overschrijven. Zo kan
-  // het opslaan van hier nooit een wijziging aan een ANDER lijstje
-  // kwijtraken die intussen door iemand anders is gedaan, ook al hadden
-  // wij die wijziging zelf nog niet gezien: we nemen per lijstje gewoon
-  // de meest recente van de twee, aan de hand van het eigen tijdstip van
-  // dát ene lijstje (`updatedAt`, of `deletedAt` voor een gearchiveerde),
-  // niet van het hele document ineens.
+  // Merget onze stand met de server per lijstje (niet de hele collectie
+  // ineens) op basis van updatedAt/deletedAt, zodat opslaan nooit een
+  // wijziging van iemand anders aan een ander lijstje overschrijft.
   function mergeHouseholdState(serverLijsten, serverArchivedLijsten, serverTombstones) {
     const record = new Map(); // lijst-id -> { lijst, archief, tijd }
 
@@ -784,11 +631,7 @@ function start() {
       if (!l || !l.id) return;
       const tijd = (archief ? l.deletedAt : l.updatedAt) || 0;
       const bestaand = record.get(l.id);
-      // ">=" (niet enkel ">"): bij een gelijk tijdstip wint de kant die
-      // hierna wordt overwogen — dat is bewust altijd onze EIGEN stand
-      // (zie hieronder), zodat een lijstje dat wij zojuist zelf hebben
-      // aangepast nooit per ongeluk verliest van een toevallig even oude
-      // serverkopie.
+      // ">=": bij een gelijk tijdstip wint bewust onze eigen (later overwogen) stand.
       if (!bestaand || tijd >= bestaand.tijd) {
         record.set(l.id, { lijst: l, archief, tijd });
       }
@@ -799,12 +642,8 @@ function start() {
     householdLijsten.forEach((l) => overweeg(l, false));
     householdArchivedLijsten.forEach((l) => overweeg(l, true));
 
-    // Grafstenen samenvoegen (per id de nieuwste). Zonder dit zou een
-    // definitief-verwijderd lijstje dat lokaal nergens meer instaat, maar
-    // waar de server nog een (oudere, nog niet definitief-verwijderde)
-    // kopie van heeft, hierboven gewoon weer worden "gevonden" en dus
-    // stilletjes terugkomen — precies het verschil tussen "ik weet dit
-    // lijstje nog niet" en "dit lijstje is bewust voorgoed weg".
+    // Grafstenen samenvoegen (per id de nieuwste) om een definitief-verwijderd
+    // lijstje niet via een oudere serverkopie te laten herleven.
     const tombstones = new Map();
     (serverTombstones || []).forEach((t) => {
       if (!t || !t.id) return;
@@ -821,47 +660,25 @@ function start() {
     const archivedLijsten = [];
     record.forEach(({ lijst, archief, tijd }, id) => {
       const steen = tombstones.get(id);
-      // Zodra er een grafsteen is, wint die ALTIJD — ongeacht hoe nieuw het
-      // tijdstip van de binnenkomende versie is. Dit was eerder een
-      // vergelijking ("steen.deletedForeverAt >= tijd"), maar een toestel
-      // dat offline gewoon door bleef werken aan een inmiddels door een
-      // ander toestel definitief verwijderd lijstje, zou zo'n vergelijking
-      // op den duur altijd winnen (het eigen tijdstip loopt immers gewoon
-      // door terwijl je erin blijft werken) en het lijstje dus alsnog laten
-      // herleven — precies wat een grafsteen had moeten voorkomen.
-      // Lijst-id's zijn altijd verse crypto.randomUUID()'s, dus een
-      // grafsteen kan hierdoor nooit per ongeluk een legitiem HERGEBRUIKT
-      // id blokkeren — er bestaat geen "opnieuw aanmaken met hetzelfde id".
+      // Een grafsteen wint altijd, ongeacht tijdstip — anders kan een offline
+      // toestel dat nog doorwerkt op een elders verwijderd lijstje het laten herleven.
       if (steen) return; // definitief weg, niet laten herleven
       (archief ? archivedLijsten : lijsten).push(lijst);
     });
 
-    // Grafstenen ouder dan 30 dagen hier ook echt uit de UITKOMST filteren
-    // (niet alleen uit de lokale kopie, zie purgeExpiredLists) — anders
-    // levert het samenvoegen van server+lokaal een oude, server-kant
-    // grafsteen steeds weer opnieuw op, ook nadat purgeExpiredLists 'm
-    // lokaal al had opgeruimd: bij elke save zou die dan gewoon weer
-    // worden teruggeschreven, en groeit de lijst nooit echt in.
+    // Ook hier filteren (niet alleen lokaal via purgeExpiredLists), anders komt
+    // een oude server-grafsteen bij elke merge terug en groeit de lijst nooit in.
     const tombstoneCutoff = Date.now() - ARCHIVE_MS;
     const geldigeTombstones = Array.from(tombstones.values()).filter((t) => t.deletedForeverAt > tombstoneCutoff);
 
     return { lijsten, archivedLijsten, tombstones: geldigeTombstones };
   }
 
-  // Meerdere plekken in de app kunnen (bijna) tegelijk saveHousehold()
-  // aanroepen (bijv. iemand die snel achter elkaar iets doet, of het
-  // meenemen van een oud los tabblad terwijl er net ook al een gewone
-  // wijziging aan het opslaan was). Laat die niet allemaal hun EIGEN
-  // afzonderlijke lees-en-samenvoeg-ronde tegelijk doen — dat kan elkaar
-  // onnodig in de weg zitten — maar zet ze gewoon netjes achter elkaar in
-  // een rijtje, zodat elke opslag altijd verdergaat op de meest recente,
-  // al bijgewerkte stand. ("householdSaveChain" zelf staat hierboven al
-  // gedeclareerd, vóór de live-koppeling wordt gestart.)
+  // Zet gelijktijdige saveHousehold()-aanroepen in een wachtrij zodat ze
+  // elkaar niet in de weg zitten en elk verdergaan op de nieuwste stand.
   function saveHousehold() {
     const beurt = householdSaveChain.then(() => saveHouseholdNu());
-    // Een mislukte opslag mag de wachtrij niet blijvend blokkeren voor
-    // latere pogingen.
-    householdSaveChain = beurt.catch(() => {});
+    householdSaveChain = beurt.catch(() => {}); // mislukte opslag mag de wachtrij niet blokkeren
     return beurt;
   }
 
@@ -873,33 +690,21 @@ function start() {
         const server = snap.exists() ? snap.data() : {};
         const merged = mergeHouseholdState(server.lijsten || [], server.archivedLijsten || [], server.tombstones || []);
         transaction.set(householdRef, {
-          // "...server" eerst: dit schrijft de HELE document opnieuw weg
-          // (geen { merge: true }), dus alles wat hier niet expliciet
-          // wordt overgenomen zou anders stilletjes verdwijnen — zoals
-          // eerder de pushTokens hieronder deed, tot iemand pushmeldingen
-          // aanzette en de eerstvolgende gewone lijst-opslag het token
-          // alweer wegveegde.
+          // "...server" eerst: dit overschrijft het HELE document, dus alles
+          // niet hier expliciet meegenomen zou anders stilletjes verdwijnen.
           ...server,
           lijsten: merged.lijsten,
           archivedLijsten: merged.archivedLijsten,
           tombstones: merged.tombstones,
           updatedAt: Date.now(),
-          // Welk toestel (via zijn eigen pushtoken, of null als dit toestel
-          // geen pushmeldingen aan heeft staan) deze opslag deed. De Cloud
-          // Function (functions/index.js) gebruikt dit om precies dát ene
-          // toestel over te slaan bij het versturen van de melding — anders
-          // zou je ook een melding krijgen over je eigen toevoeging.
+          // Welk toestel dit schreef, zodat de Cloud Function (functions/index.js)
+          // dat ene toestel overslaat bij het sturen van een pushmelding.
           laatsteSchrijver: huidigPushToken() || null,
         });
       });
-      // Bewust NIET hierna nog even snel "householdLijsten" gelijkzetten aan
-      // wat we net hebben weggeschreven: terwijl dit opslaan onderweg was
-      // (de transactie doet zelf ook weer een aparte lees-actie), kan er
-      // intussen alweer iets nieuws lokaal zijn bijgekomen of veranderd
-      // (bijv. een tweede snelle wijziging, of het meenemen van een oud
-      // los tabblad) — dat zou dan alsnog verloren gaan. Onze eigen
-      // live-koppeling (onSnapshot) hoort deze schrijfactie vanzelf terug,
-      // en werkt de werkstand dan op de normale, veilige manier bij.
+      // Bewust niet "householdLijsten" hier gelijkzetten aan wat net is
+      // weggeschreven: er kan intussen alweer iets nieuws bijgekomen zijn.
+      // De eigen onSnapshot hoort deze schrijfactie vanzelf terug.
       setSyncStatus("Opgeslagen " + new Date().toLocaleTimeString(), "synced");
     } catch (e) {
       console.error("Fout bij opslaan:", e);
@@ -908,17 +713,7 @@ function start() {
   }
 
   async function saveList() {
-    // "saveTimer" markeert dat er nog een wachtende opslag is (voor
-    // flushPendingSave, zie hierboven). Die moet ook leeggemaakt worden
-    // wanneer de 400ms-timer gewoon vanzelf afloopt (niet alleen bij een
-    // vroegtijdige flush) — anders blijft "er staat nog iets te wachten"
-    // voor altijd waar staan, en zou elke latere keer dat het tabblad
-    // verdwijnt (schermvergrendeling, van app wisselen) opnieuw een
-    // opslag afdwingen, óók als er niets meer te bewaren viel. Dat kan in
-    // het ergste geval zelfs verse, ondertussen van elders binnengekomen
-    // wijzigingen overschrijven met een oude, in-het-geheugen-verouderde
-    // kopie.
-    saveTimer = null;
+    saveTimer = null; // ook nulzetten als de timer vanzelf afloopt, niet alleen bij flush
     const now = Date.now();
     if (activePrive) {
       const entry = priveLijsten.find((l) => l.id === activeId);
@@ -952,11 +747,8 @@ function start() {
     await saveHousehold();
   }
 
-  // Verwijdert lijstjes-archiefitems ouder dan 30 dagen definitief.
-  // Geeft true terug als er in het GEDEELDE gezinnetje iets veranderde
-  // (archief-lijst of grafstenen) — dat moet dan ook echt opgeslagen
-  // worden, anders staat het bij de volgende snapshot van de server weer
-  // gewoon terug.
+  // Verwijdert archief-lijstjes ouder dan 30 dagen. Geeft true terug als het
+  // GEDEELDE gezinnetje veranderde, zodat de aanroeper dat ook echt opslaat.
   function purgeExpiredLists() {
     const cutoff = Date.now() - ARCHIVE_MS;
     const beforeLijsten = householdArchivedLijsten.length;
@@ -964,10 +756,6 @@ function start() {
     const beforePrive = priveArchief.length;
     priveArchief = priveArchief.filter((l) => l.deletedAt > cutoff);
     if (priveArchief.length !== beforePrive) savePriveArchief();
-    // Grafstenen ouder dan 30 dagen mogen ook weg: na die tijd is de
-    // "gevaarlijke" oude archiefkopie toch al overal vanzelf opgeruimd
-    // (zie hierboven), dus is de grafsteen niet meer nodig om herleven te
-    // voorkomen — zo blijft die lijst niet eindeloos doorgroeien.
     const beforeTombstones = (householdTombstones || []).length;
     householdTombstones = (householdTombstones || []).filter((t) => t.deletedForeverAt > cutoff);
     return householdArchivedLijsten.length !== beforeLijsten || householdTombstones.length !== beforeTombstones;
@@ -1098,7 +886,6 @@ function start() {
     }
   }
 
-  // --- Dit lijstje verwijderen (met dezelfde 30-dagen-vangnet als items) ---
   function updateDeletedView() {
     if (archiveOpen) {
       el.app.hidden = true;
@@ -1200,10 +987,7 @@ function start() {
       } else {
         householdLijsten = householdLijsten.filter((l) => l.id !== activeId);
         householdArchivedLijsten.push(deletedEntry);
-        // Altijd meteen opslaan, óók als we hierna naar een ander lijstje
-        // schakelen — anders herlaadt de pagina vóórdat deze verwijdering
-        // ooit is opgeslagen, en lijkt het lijstje niet verwijderd.
-        await saveHousehold();
+        await saveHousehold(); // meteen opslaan, ook al schakelen we hierna naar een ander lijstje
       }
 
       archiveOpen = false;
@@ -1211,23 +995,15 @@ function start() {
       if (rest.length > 0) {
         await switchToList(rest[0].id);
       } else if (activePrive) {
-        // Een privé lijstje verwijderen raakt de server niet (geen
-        // saveHousehold-rondje, dus ook geen onSnapshot-echo die straks
-        // vanzelf een vervangend lijstje aanmaakt) — dus moet dat hier
-        // expliciet, anders blijft het scherm leeg staan.
+        // Privé-verwijdering raakt de server niet (geen onSnapshot-echo die
+        // vanzelf een vervangend lijstje maakt), dus hier expliciet doen.
         addList(true);
       }
-      // Was dit echt het allerlaatste GEDEELDE lijstje? Dan hoeft hier
-      // niets extra's te gebeuren: saveHousehold() hierboven triggert de
-      // eigen onSnapshot-echo, en resolveActiveList() maakt daar (via
-      // z'n eigen "geen enkel lijstje meer over"-vangnet) vanzelf een
-      // nieuw leeg lijstje van — dat nog een keer hier doen zou een 2e,
-      // overbodig lijstje kunnen opleveren als die twee elkaar kruisen.
+      // Laatste gedeelde lijstje: resolveActiveList() maakt via saveHousehold's
+      // onSnapshot-echo vanzelf een nieuwe aan, hier niets extra's nodig.
     });
   }
 
-  // Een verwijderd lijstje (nog binnen de 30 dagen) terugzetten — vanuit
-  // het ☰-lijstjespaneel, net als "Terugzetten" bij losse items.
   async function restoreList(id, prive) {
     if (prive) {
       const idx = priveArchief.findIndex((l) => l.id === id);
@@ -1242,12 +1018,7 @@ function start() {
       if (idx === -1) return;
       const [l] = householdArchivedLijsten.splice(idx, 1);
       delete l.deletedAt;
-      // Het tijdstip van terugzetten bijwerken: bij het opslaan bepaalt dít
-      // tijdstip (niet het oude, van vóór de verwijdering) dat dit lijstje
-      // nu weer actief is — anders zou het opslaan kunnen denken dat de
-      // (oudere) verwijdering nog steeds het laatste is wat ermee gebeurd
-      // is, en de teruggezette lijst per ongeluk weer laten verdwijnen.
-      l.updatedAt = Date.now();
+      l.updatedAt = Date.now(); // anders wint de oude (oudere) verwijdering nog bij het mergen
       householdLijsten.push(l);
     }
     if (verborgenLijsten.includes(id)) {
@@ -1260,9 +1031,6 @@ function start() {
     await saveHousehold();
   }
 
-  // Een verwijderd lijstje definitief weggooien, meteen — geen extra
-  // bevestiging nodig: het lijstje is al 2x bewust verwijderd (eerst uit
-  // de lijstjes, nu ook nog uit het archief), net als bij losse items.
   async function permanentlyDeleteList(id, prive) {
     if (prive) {
       const idx = priveArchief.findIndex((l) => l.id === id);
@@ -1275,18 +1043,12 @@ function start() {
     const idx = householdArchivedLijsten.findIndex((l) => l.id === id);
     if (idx === -1) return;
     householdArchivedLijsten.splice(idx, 1);
-    // Een grafsteen achterlaten: zonder dit zou het opslaan hierna de
-    // server nog even kunnen raadplegen, daar de (nog niet
-    // definitief-verwijderde) kopie van dit lijstje aantreffen, en die
-    // per ongeluk weer laten herleven (zie mergeHouseholdState hierboven).
-    householdTombstones.push({ id, deletedForeverAt: Date.now() });
+    householdTombstones.push({ id, deletedForeverAt: Date.now() }); // voorkomt herleven via mergeHouseholdState
     renderTabsAndPanel();
     await saveHousehold();
   }
 
-  // Geeft de volgorde-index terug van elk actief (niet-afgevinkt) item
-  // binnen de onderliggende `items`-array, gescheiden per groep (vastgepind
-  // of niet).
+  // Volgorde-index van elk actief item binnen `items`, per groep (vastgepind/niet).
   function activeIndexOrder(pinned) {
     const order = [];
     items.forEach((it, i) => {
@@ -1295,10 +1057,7 @@ function start() {
     return order;
   }
 
-  // Past de volgorde binnen één groep (vastgepind/niet) aan, zonder de
-  // plek van de ANDERE groep in het items-array te verstoren: dezelfde
-  // posities (activeIndexOrder) blijven bezet, alleen welke items erin
-  // staan verandert.
+  // Herschikt binnen één groep zonder de posities van de andere groep te verstoren.
   function herschikGroep(pinned, geordendeIds) {
     const posities = activeIndexOrder(pinned);
     if (posities.length !== geordendeIds.length) return; // zou niet moeten gebeuren; voorzichtigheidshalve niks doen
@@ -1307,26 +1066,12 @@ function start() {
     posities.forEach((idx, i) => { items[idx] = nieuweItems[i]; });
   }
 
-  // ============================================================
-  // Verslepen om te herordenen — vervangt de oude ↑/↓-knoppen. Werkt met
-  // zowel muis als vinger via Pointer Events (dezelfde events voor allebei,
-  // dus geen aparte touch-behandeling nodig). Alleen binnen dezelfde groep
-  // (vastgepind, of niet — net als de oude pijltjes ook al deden).
-  //
-  // Aanpak: bij het vastpakken leggen we de huidige (verticale) middens
-  // van alle sleepbare items in dezelfde groep vast. Tijdens het slepen
-  // schuift alleen het vastgepakte item zelf visueel mee (via CSS
-  // transform) — de andere items blijven op hun plek, dat houdt het
-  // simpel en voorspelbaar. Pas bij loslaten wordt op basis van waar het
-  // vastgepakte item dan terecht is gekomen (vergeleken met die vastgelegde
-  // middens) de nieuwe volgorde echt toegepast.
-  // ============================================================
+  // Verslepen om te herordenen, via Pointer Events (muis+vinger identiek).
+  // Legt bij het vastpakken de middens van de groep vast; alleen het
+  // vastgepakte item beweegt visueel mee, de nieuwe volgorde wordt pas bij
+  // loslaten toegepast op basis van waar het terechtkwam.
   let sleepState = null;
 
-  // Welk item-actiemenu ("⋯") nu openstaat (of null, zie ook de declaratie
-  // hierboven aan het begin van start() — die moet vóór de eerste
-  // (soms synchrone) render() staan, anders kan lezen hier nog in de
-  // "temporal dead zone" van deze `let` terechtkomen).
   document.addEventListener("click", () => {
     if (openItemMenuId !== null) {
       openItemMenuId = null;
@@ -1366,12 +1111,7 @@ function start() {
 
   function onSlepen(e) {
     if (!sleepState) return;
-    // Zodra we echt aan het slepen zijn (via het handvatje, dat al vanaf
-    // het begin touch-action:none heeft), mag de vinger niet ALSNOG de
-    // pagina laten scrollen — dat zou het item en de lijst tegelijk laten
-    // bewegen, zodat het versleepte item nauwelijks lijkt te verplaatsen
-    // t.o.v. het scherm.
-    e.preventDefault();
+    e.preventDefault(); // voorkomt dat de pagina ook nog meescrollt tijdens het slepen
     const deltaY = e.clientY - sleepState.startY;
     sleepState.li.style.transform = `translateY(${deltaY}px)`;
   }
@@ -1396,23 +1136,15 @@ function start() {
     const geordendeIds = anderen.map((m) => m.id);
     geordendeIds.splice(nieuwePositie, 0, itemId);
 
-    // Niks veranderd (bijv. gewoon een tikje op het handvat, geen echte
-    // sleepbeweging)? Dan ook geen onnodige render/opslag.
-    if (geordendeIds.join(",") === oorspronkelijkeVolgorde.join(",")) return;
+    if (geordendeIds.join(",") === oorspronkelijkeVolgorde.join(",")) return; // niets veranderd, geen render/opslag nodig
 
     herschikGroep(pinned, geordendeIds);
     render();
     scheduleSave();
   }
 
-  // ============================================================
-  // Snel toevoegen: favorieten (zelf gekozen, blijven staan) + vaak
-  // toegevoegde items (automatisch geteld). Werkt allebei op de
-  // genormaliseerde tekst, niet op een los item — een favoriet/telling
-  // hoort bij "dit soort item", niet bij dit ene ding dat nu op de lijst
-  // staat (en dat morgen weer is afgevinkt en verwijderd).
-  // ============================================================
-
+  // Snel toevoegen: werkt op genormaliseerde tekst, niet op een los item-id
+  // (favoriet/telling hoort bij "dit soort item", niet bij één instantie ervan).
   function isFavoriet(tekst) {
     const genormaliseerd = normaliseerTekst(tekst);
     return favorieten.some((f) => normaliseerTekst(f.tekst) === genormaliseerd);
@@ -1446,11 +1178,7 @@ function start() {
     scheduleSave();
   }
 
-  // Favorieten altijd (in de volgorde die iemand zelf koos), aangevuld met
-  // de meest toegevoegde items die nog geen favoriet zijn — allebei alleen
-  // als dat item niet al openstaat op de lijst (dan heeft "snel toevoegen"
-  // ervan geen zin). Totaal begrensd zodat het rijtje niet uit de hand
-  // loopt bij een lijstje met een lange geschiedenis.
+  // Favorieten + meest toegevoegde items die nog geen favoriet zijn en nog niet open op de lijst staan.
   function berekenSnelSuggesties() {
     const actieveTeksten = new Set(
       items.filter((i) => !i.done).map((i) => normaliseerTekst(i.text))
@@ -1490,10 +1218,7 @@ function start() {
     });
   }
 
-  // Eén item één plekje omhoog/omlaag, net als moveList() hierboven voor
-  // lijstjes — maar dan binnen de eigen "baan" (open+vastgepind,
-  // open+niet-vastgepind, of afgevinkt), want dat zijn ook de groepen
-  // waarin render()/buildItemRow ze los van elkaar laat zien.
+  // Item omhoog/omlaag binnen zijn eigen groep (open+pinned, open, of afgevinkt).
   function moveItem(id, direction) {
     const item = items.find((i) => i.id === id);
     if (!item) return;
@@ -1508,12 +1233,6 @@ function start() {
     scheduleSave();
   }
 
-  // Compacte weergave van "wie": een klein rond badge met (zo kort mogelijk
-  // unieke) initialen in plaats van een hele regel "Toegevoegd door X" /
-  // "Afgevinkt door X" — dat nam te veel ruimte in terwijl het niet zoveel
-  // toevoegde. Bij twee mensen met dezelfde eerste letter krijgen beiden
-  // vanzelf 2 (of zo nodig meer) letters, zodat ze uit elkaar te houden
-  // blijven. (Het kleurenpalet zelf staat hierboven, vroeg in start().)
   function alleBekendeNamen() {
     const namen = new Set();
     const voegToe = (lijst) => {
@@ -1529,22 +1248,13 @@ function start() {
     return namen;
   }
 
-  // Geeft het ECHTE lijst-object terug (dus rechtstreeks uit
-  // householdLijsten/priveLijsten, niet de kopie die getAllLists()/
-  // findList() teruggeven) — nodig zodra we ook een EIGENSCHAP als
-  // "updatedAt" willen aanpassen, niet alleen iets binnen een array
-  // (items/archivedItems) die toch al gedeeld wordt met de kopie.
+  // Het echte lijst-object (niet de kopie van getAllLists()/findList()) — nodig om een eigenschap als updatedAt aan te passen.
   function echteLijst(lijstId, prive) {
     return (prive ? priveLijsten : householdLijsten).find((l) => l.id === lijstId) || null;
   }
 
-  // Alle gearchiveerde items van ALLE lijstjes (gedeeld + privé) samen, elk
-  // gemerkt met bij welk lijstje het hoort — voor de centrale
-  // archiefweergave (zie renderArchive()). Voor de actieve lijst gebruiken
-  // we de live werkvariabelen (die kunnen nog net iets verser zijn dan wat
-  // al in householdLijsten/priveLijsten staat, zie ook alleBekendeNamen()
-  // hierboven), voor de rest gewoon de laatst bekende stand van dat
-  // lijstje zelf.
+  // Gearchiveerde items van alle lijstjes voor de centrale archiefweergave; voor
+  // de actieve lijst de live werkvariabelen (verser dan householdLijsten/priveLijsten).
   function alleGearchiveerdeItems() {
     const resultaat = [];
     getAllLists().forEach((l) => {
@@ -1557,10 +1267,8 @@ function start() {
     return resultaat;
   }
 
-  // Zet een gearchiveerd item terug, ongeacht of het bij de actieve lijst
-  // hoort of bij een ander lijstje (voor dat laatste: rechtstreeks de
-  // ECHTE lijst aanpassen en los opslaan, want scheduleSave()/saveList()
-  // slaan alleen de actieve lijst op).
+  // Voor een niet-actieve lijst: rechtstreeks de echte lijst aanpassen en los opslaan
+  // (scheduleSave()/saveList() slaan alleen de actieve lijst op).
   async function restoreArchivedItem(lijstId, prive, itemId) {
     if (lijstId === activeId) {
       restoreItem(itemId);
@@ -1581,8 +1289,6 @@ function start() {
     else await saveHousehold();
   }
 
-  // Zelfde verhaal als permanentlyDeleteItem(), maar dan voor een item dat
-  // niet per se bij de actieve lijst hoort.
   async function permanentlyDeleteArchivedItem(lijstId, prive, itemId) {
     if (lijstId === activeId) {
       permanentlyDeleteItem(itemId);
@@ -1598,6 +1304,7 @@ function start() {
     else await saveHousehold();
   }
 
+  // Kortst mogelijke unieke initialen tussen alleNamen (meer letters bij een botsing).
   function initialenVoor(naam, alleNamen) {
     const andere = [...alleNamen].filter((n) => n !== naam);
     let lengte = 1;
@@ -1627,22 +1334,13 @@ function start() {
     return badge;
   }
 
-  // Los van de gewone lijst-opslag (net als de pushTokens hierboven): een
-  // eigen kleine transactie die alleen badgeKleuren aanpast, niet de
-  // lijsten/archief/grafstenen van dat moment.
+  // Eigen kleine transactie, los van de lijst-opslag: past alleen badgeKleuren aan.
   async function stelBadgeKleurIn(naam, kleur) {
-    // Alvast lokaal bijwerken en opnieuw tekenen: dan zie je je nieuwe
-    // kleurtje meteen, zonder te wachten op de round-trip naar de server.
-    badgeKleuren = { ...badgeKleuren, [naam]: kleur };
+    badgeKleuren = { ...badgeKleuren, [naam]: kleur }; // lokaal alvast tonen, niet wachten op de server
     render();
     renderBadgeKleurPicker();
-    // Belangrijk: eerst een eventueel nog wachtende lijst-opslag (zie
-    // scheduleSave(), 400ms-debounce) afdwingen. Zonder dit zou deze losse
-    // transactie de server nog met de VORIGE stand van de lijsten kunnen
-    // lezen (je nieuwste toevoeging stond dan nog niet op de server), en
-    // die oudere stand er met "...server" zo weer overheen terugschrijven
-    // — en daarmee je net-toegevoegde item stilletjes weer laten
-    // verdwijnen zodra deze schrijfactie via onSnapshot terugkomt.
+    // Eerst een wachtende lijst-opslag afdwingen, anders leest deze transactie
+    // een verouderde serverstand en overschrijft die je nieuwste wijziging.
     await flushPendingSave();
     try {
       await runTransaction(db, async (transaction) => {
@@ -1756,9 +1454,6 @@ function start() {
       row.append(handle);
     }
 
-    // Alle overige acties (favoriet, bezig, vastpinnen, verwijderen) zitten
-    // achter één "⋯"-knopje in plaats van steeds allemaal los naast elkaar
-    // te staan — dat werd al gauw te veel knopjes op één regel.
     const menuWrap = document.createElement("div");
     menuWrap.className = "item-menu-wrap";
 
@@ -1780,10 +1475,7 @@ function start() {
     menu.hidden = openItemMenuId !== item.id;
     menu.addEventListener("click", (e) => e.stopPropagation());
 
-    // Favoriet-knopje: dit item (op tekst, niet op dit ene exemplaar) altijd
-    // laten meedoen bij "Snel toevoegen" hierboven, ook nadat het is
-    // afgevinkt/verwijderd — precies daarom werkt dit op de tekst, niet op
-    // een los item-id.
+    // Werkt op tekst (niet item-id) zodat het favoriet blijft meetellen na afvinken/verwijderen.
     const favBtn = document.createElement("button");
     favBtn.type = "button";
     const isFav = isFavoriet(item.text);
@@ -1798,10 +1490,6 @@ function start() {
     });
     menu.append(favBtn);
 
-    // "Bezig"-knop: los van het vinkje hierboven (dat blijft gewoon
-    // open/afgevinkt) — een extra seintje dat iemand hier al mee bezig is,
-    // met optioneel een kort notitietje. Niet nodig meer zodra het item al
-    // is afgevinkt.
     if (!item.done) {
       const bezigBtn = document.createElement("button");
       bezigBtn.type = "button";
@@ -1835,10 +1523,6 @@ function start() {
     }
 
     if (showMoveButtons) {
-      // Naast slepen (het handvatje) en "Vastpinnen bovenaan" (dat maar 1
-      // vaste plek kent) ook gewoon met knopjes een plekje omhoog/omlaag
-      // kunnen, zoals bij lijstjes in het ☰-paneel al kon — fijner dan
-      // preciesmoeten mikken met een sleepbeweging, zeker op een telefoon.
       const zelfdeGroep = items.filter((i) => i.done === item.done && !!i.pinned === !!item.pinned);
       const posInGroep = zelfdeGroep.indexOf(item);
 
@@ -1896,9 +1580,6 @@ function start() {
 
     li.append(row);
 
-    // Regeltje bij "bezig": notitie + naam als er allebei zijn, anders wat
-    // er wél is (alleen de naam, of alleen de notitie als er (nog) geen
-    // naam is ingesteld) — nooit een tijdstip, dat voegt hier niks toe.
     if (item.bezig) {
       const bezigTekst = item.bezigNotitie
         ? item.bezigDoor
@@ -1944,9 +1625,6 @@ function start() {
     el.list.innerHTML = "";
     renderSnelToevoegen();
 
-    // Zoekveldje: alleen tonen als er ook echt iets te doorzoeken valt, en
-    // filtert op alles (open én afgevinkt) — zo vind je ook een afgevinkt
-    // item terug.
     if (el.zoekVeld) el.zoekVeld.hidden = items.length === 0;
     const zoekTermSchoon = zoekTerm.trim().toLowerCase();
     const zoekActief = zoekTermSchoon.length > 0;
@@ -2003,11 +1681,7 @@ function start() {
     knownIds = new Set(items.map((i) => i.id));
   }
 
-  // ============================================================
-  // Tabbladen (zoveel lijstjes als er, in jouw eigen volgorde, op één
-  // regel passen) + het "Lijstjes"-paneel (echt alle lijstjes, met
-  // volgorde/schakelen).
-  // ============================================================
+  // Tabbladen (zoveel lijstjes als op één regel passen) + het "Lijstjes"-paneel (alles, met volgorde/schakelen).
   function renderTabsAndPanel() {
     renderTabs();
     renderListsPanel();
@@ -2017,10 +1691,6 @@ function start() {
     return (l.prive ? "🔒 " : "") + (l.naam || "Lijst") + (heeftIetsNieuws(l) ? " •" : "");
   }
 
-  // De id's die NU als tabblad bovenin staan — bijgehouden in huidigeTabIds
-  // (bijgewerkt door renderTabs() hieronder, telkens na het opnieuw
-  // passend maken), niet zelf hier opnieuw berekend: dat kan alleen aan de
-  // hand van de daadwerkelijk gerenderde (en gemeten) breedte.
   function tabIds() {
     return huidigeTabIds;
   }
@@ -2030,10 +1700,6 @@ function start() {
     el.listTabs.innerHTML = "";
     el.listTabs.hidden = false;
 
-    // Kandidaten: ALLE bestaande lijstjes in jouw eigen volgorde — geen
-    // vast aantal meer. Hoeveel daarvan uiteindelijk als tabblad blijven
-    // staan hangt af van de beschikbare breedte (zie de meet-stap
-    // hieronder): kortere naampjes → meer tabbladen passen er vanzelf bij.
     const kandidaatIds = volgorde.filter((id) => findList(id));
     const tabElementen = [];
 
@@ -2055,9 +1721,6 @@ function start() {
         if (id !== activeId) {
           switchToList(id);
         } else if (archiveOpen || settingsOpen || listsOpen) {
-          // Al op dit lijstje, maar je zit nog in het archief/instellingen/
-          // ☰-paneel: dan moet een tik op dit tabblad je (net als het
-          // kruisje) terugbrengen naar de gewone lijst-weergave.
           archiveOpen = false;
           settingsOpen = false;
           listsOpen = false;
@@ -2084,13 +1747,7 @@ function start() {
     });
     el.listTabs.appendChild(listsBtnTab);
 
-    // Passend maken: zolang de tabbladen + de ☰-knop niet allemaal op één
-    // regel passen (dus zolang er, ook al staat overflow-x normaal op
-    // "auto", eigenlijk gescrold zou moeten worden), het LAATSTE tabblad
-    // weghalen — dat lijstje bestaat gewoon nog steeds, en staat dan
-    // sowieso (ook) in het ☰-paneel. "+1" als kleine marge tegen
-    // afrondingsverschillen die anders bij een exacte pasvorm per ongeluk
-    // toch nog één tabblad te veel zouden laten staan.
+    // Laatste tabblad weghalen zolang niet alles op één regel past (blijft ook in het ☰-paneel staan).
     while (tabElementen.length > 0 && el.listTabs.scrollWidth > el.listTabs.clientWidth + 1) {
       const laatste = tabElementen.pop();
       laatste.tab.remove();
@@ -2113,8 +1770,6 @@ function start() {
     if (!el.listsPanelList) return;
     el.listsPanelList.innerHTML = "";
 
-    // Alleen id's die ook echt (nog) een bestaand lijstje zijn, in de
-    // eigen volgorde van dit toestel.
     const orderedIds = volgorde.filter((id) => findList(id));
     const tabs = tabIds();
 
@@ -2159,9 +1814,6 @@ function start() {
       downBtn.addEventListener("click", () => moveList(id, 1));
       moveWrap.append(upBtn, downBtn);
 
-      // Geen aparte "vastpinnen"-knop meer — alleen nog een informatief
-      // label: de volgorde zelf (via de pijltjes hierboven) bepaalt of
-      // een lijstje als tabblad bovenin staat.
       const tabBadge = document.createElement("span");
       tabBadge.className = "lists-panel-tab-badge" + (isTab ? " active" : "");
       tabBadge.textContent = isTab ? "tabblad" : "";
@@ -2224,9 +1876,7 @@ function start() {
 
     if (el.listsPanelHidden) {
       el.listsPanelHidden.innerHTML = "";
-      // Een verborgen lijstje dat inmiddels (door iemand anders) verwijderd
-      // of niet meer vindbaar is, ruimen we hier meteen lokaal op — anders
-      // zou het voor altijd als "verborgen" blijven meetellen.
+      // Een niet meer vindbaar verborgen lijstje hier meteen lokaal opruimen.
       const geldig = verborgenLijsten.filter((id) => findList(id));
       if (geldig.length !== verborgenLijsten.length) {
         verborgenLijsten = geldig;
@@ -2293,22 +1943,9 @@ function start() {
     }
   });
 
-  // ============================================================
-  // Pushmeldingen — los van (en boven op) de gewone realtime-sync
-  // hierboven: die werkt alleen zolang de app op de achtergrond of
-  // voorgrond open staat, dit geeft een melding op het toestel zelf, ook
-  // als de app helemaal niet open is. Werkt per TOESTEL, niet per
-  // lijstje: elk toestel meldt een eigen "token" aan bij het gezinnetje
-  // (in het gedeelde document zelf, náást de lijsten), en een Cloud
-  // Function (zie functions/index.js in dit project — moet Bob apart,
-  // eenmalig zelf deployen, zie README.md) stuurt bij een nieuw item een
-  // melding naar alle aangemelde toestellen.
-  //
-  // Bewust verborgen (via el.pushSection.hidden) tot: (a) de browser dit
-  // ondersteunt (isSupported()) — Firefox op iPhone bijvoorbeeld niet, en
-  // (b) er een vapidKey in config.js staat (zonder Cloud Messaging
-  // ingesteld in Firebase zou de knop toch nooit kunnen werken).
-  // ============================================================
+  // Pushmeldingen: werken ook als de app niet open is, per toestel via een
+  // token in het gezinsdocument; de Cloud Function (functions/index.js,
+  // apart deployen — zie README.md) stuurt de melding naar alle toestellen.
   const PUSH_TOKEN_KEY = "boodschappenlijst:push-token";
 
   function huidigPushToken() {
@@ -2329,10 +1966,7 @@ function start() {
     el.pushBtn.classList.toggle("active", aan);
   }
 
-  // Los van de gewone lijst-opslag hierboven (saveHousehold/saveList):
-  // tokens hebben niets te maken met de inhoud van een lijstje, dus een
-  // eigen kleine transactie die verder niets aan lijsten/archief/
-  // grafstenen verandert, wat die ook op dat moment waren.
+  // Eigen kleine transactie, los van de lijst-opslag.
   async function voegPushTokenToe(token) {
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(householdRef);
@@ -2372,9 +2006,7 @@ function start() {
       await voegPushTokenToe(token);
       bewaarPushToken(token);
       updatePushKnop();
-      // Meldingen terwijl de app op de voorgrond openstaat komen hier
-      // binnen (i.p.v. als systeemmelding) — gewoon als toastje laten
-      // zien, dan blijft het rustig als je toch al aan het kijken bent.
+      // Meldingen terwijl de app open is komen hier binnen i.p.v. als systeemmelding.
       onMessage(messaging, (payload) => {
         showToast((payload.notification && payload.notification.body) || "Er is iets nieuws toegevoegd");
       });

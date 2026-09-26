@@ -1,38 +1,13 @@
-// Regressietest voor een kritieke bug die bij de kritische-blik-review van
-// 25-09-2026 aan het licht kwam.
+// Regressietest: een onSnapshot van een ANDER toestel die binnenkomt tijdens
+// de eigen 400ms-opslagvertraging (scheduleSave) mocht een nog niet
+// opgeslagen lokale wijziging (bijv. een afvinkje) niet stilletjes
+// overschrijven met de oudere serverstand (fix: resolveActiveList() slaat
+// overschrijven over zolang saveTimer nog loopt voor hetzelfde lijstje).
 //
-// Een wijziging aan het actieve lijstje (bijv. een afgevinkt item) leeft
-// meteen in het geheugen, maar wordt pas na 400ms écht via saveHousehold()
-// naar de server geschreven (scheduleSave/saveList — zodat snel-achter-
-// elkaar wijzigen niet steeds apart hoeft te worden opgeslagen). Op HETZELFDE
-// toestel is dat onschuldig (de mutatie zit al in hetzelfde in-het-geheugen
-// object dat ook wordt weggeschreven door elke andere actie die ondertussen
-// opslaat). Maar komt er in die 400ms een onSnapshot binnen die van een
-// ANDER toestel komt — met zijn eigen, losse (en dus nog niet van deze
-// wijziging wetende) kopie van de data — dan verving resolveActiveList()
-// zonder enige check de lokale `items` door die binnenkomende, oudere
-// kopie. Het eigen afvinkje verdween dan stilletjes, en de eigen (nu zelf
-// ook teruggedraaide) 400ms-opslag bevestigde dat verlies vervolgens actief.
-//
-// De fix: resolveActiveList() slaat het overschrijven van de
-// werkvariabelen over zolang er nog een wachtende, niet-opgeslagen
-// wijziging is (saveTimer) én het gaat om hetzelfde lijstje dat al actief
-// was — de wachtende opslag zelf stuurt de juiste stand dan gewoon zelf
-// door zodra hij aan de beurt is.
-//
-// Let op bij het simuleren van "twee toestellen" hieronder: de
-// mock-Firestore (mock-firestore.js) deelt de "cloud"-data via localStorage
-// + BroadcastChannel, wat alleen werkt tussen pagina's in DEZELFDE
-// browser-context. Maar gewone localStorage-sleutels (o.a. welk lijstje
-// actief is, per toestel) zijn dan OOK gedeeld tussen "toestel A" en
-// "toestel B" — anders dan bij echte, losse toestellen. Toestel B mag dus
-// tijdens de kritieke test-stap zelf niet van actief lijstje wisselen
-// (bijv. via het aanmaken van een nieuw lijstje), anders overschrijft dat
-// stiekem ook toestel A's "welk lijstje is actief"-status. Vandaar dat het
-// aanmaken + weer verwijderen van het "derde lijstje" hieronder bewust vóór
-// het kritieke moment gebeurt (en toestel B daarna vanzelf terugschakelt
-// naar hetzelfde lijstje als A) — de kritieke actie zelf
-// ("Verwijder definitief") wisselt nooit van actief lijstje.
+// Let op: de mock-Firestore deelt localStorage tussen "toestel A/B" in
+// dezelfde browsercontext, dus toestel B mag tijdens de kritieke stap niet
+// zelf van actief lijstje wisselen — vandaar dat het test-lijstje hieronder
+// vóór het kritieke moment wordt aangemaakt en weer verwijderd.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -84,12 +59,7 @@ async function openDangerZone(page) {
   const base = `http://localhost:${port}`;
   const browser = await chromium.launch();
 
-  // ============================================================
-  // S. Een net-gedane wijziging op het actieve lijstje (afvinken), op
-  //    toestel A, overleeft een ONGERELATEERDE opslag-actie op toestel B
-  //    (een al gearchiveerd, ander lijstje definitief verwijderen) die
-  //    binnenkomt VOORDAT toestel A's eigen 400ms-debounce is verlopen.
-  // ============================================================
+  // S. Afvinken op A overleeft een ongerelateerde opslag op B die binnenkomt vóór A's 400ms-debounce afloopt.
   {
     const ctx = await browser.newContext(); // 1 context = gedeelde mock-cloud
     const code = "race-conditie-test";
@@ -111,11 +81,7 @@ async function openDangerZone(page) {
     await pageB.waitForSelector("#app:not([hidden])");
     await pageB.waitForTimeout(300);
 
-    // Voorbereiding op toestel B (vóór het kritieke moment): een derde
-    // lijstje aanmaken en meteen weer verwijderen, zodat er iets in het
-    // archief staat om zo dadelijk definitief te verwijderen. Na deze
-    // verwijdering schakelt B vanzelf terug naar "Onze lijst" — hetzelfde
-    // lijstje als waar A op zit.
+    // Derde lijstje aanmaken + verwijderen zodat er iets in het archief staat; B schakelt daarna terug naar A's lijstje.
     await pageB.click("#lists-btn");
     await pageB.waitForSelector("#lists-panel:not([hidden])");
     await withDialogQueue(pageB, [true, "Derde lijstje", true], async () => {
@@ -130,23 +96,14 @@ async function openDangerZone(page) {
     });
     await pageB.waitForTimeout(300);
 
-    // === Het kritieke moment ===
-    // 1. Op toestel A: het item afvinken. Start de 400ms-debounce
-    //    (scheduleSave), schrijft nog NIET meteen naar de server.
+    // Kritiek moment: A vinkt af (start 400ms-debounce), dan verwijdert B (ongerelateerd, direct) vóór die debounce afloopt.
     await pageA.click("#list li input[type=checkbox]");
 
-    // 2. VOORDAT die 400ms voorbij zijn: op toestel B het net gearchiveerde
-    //    "Derde lijstje" definitief verwijderen — dit slaat direct op
-    //    (geen debounce, en zonder van actief lijstje te wisselen) en heeft
-    //    an sich niets met "Onze lijst" (het actieve lijstje op A) te
-    //    maken. Dat triggert wél een onSnapshot-echo op toestel A.
     await pageB.click("#lists-btn");
     await pageB.waitForSelector("#lists-panel:not([hidden])");
     await pageB.click('#lists-panel-archived button:has-text("Verwijder definitief")');
 
-    // 3. Nu ook de rest van toestel A's eigen 400ms-debounce laten
-    //    aflopen.
-    await pageA.waitForTimeout(700);
+    await pageA.waitForTimeout(700); // A's debounce laten aflopen
 
     check("S1. Geen JS-fouten opgetreden tijdens deze race-conditie", errors.length === 0);
     check(
@@ -154,9 +111,7 @@ async function openDangerZone(page) {
       await pageA.$eval("#list li", (li) => li.classList.contains("done"))
     );
 
-    // En ook na een volledige herlaad van A — dus de echte, opgeslagen
-    // serverstand, niet toevallig alleen een in-memory toevalstreffer?
-    await pageA.reload();
+    await pageA.reload(); // ook na herladen: bevestigt dat het echt is opgeslagen, niet alleen in-memory
     await pageA.waitForSelector("#app:not([hidden])");
     check(
       "S3. ...en blijft dat ook zo na herladen (dus ook écht opgeslagen)",

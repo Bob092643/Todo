@@ -29,9 +29,6 @@ function check(label, cond) {
   if (cond) pass++; else fail++;
 }
 
-// Favoriet/verwijderen zitten achter het "⋯"-actiemenu van het item, dus
-// dat moet steeds eerst open (er staat in deze test steeds maar één item
-// op de lijst, dus het eerste actiemenu-knopje is ondubbelzinnig).
 async function openItemMenu(page) {
   await page.click(".item-menu-btn");
 }

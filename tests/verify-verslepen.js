@@ -36,9 +36,7 @@ async function sleepVan(page, vanSelector, deltaY) {
   const startY = box.y + box.height / 2;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
-  // In kleine stapjes bewegen, zodat er onderweg genoeg pointermove-events
-  // vuren (net als een echte sleepbeweging).
-  const stappen = 8;
+  const stappen = 8; // in kleine stapjes, zodat er genoeg pointermove-events vuren
   for (let i = 1; i <= stappen; i++) {
     await page.mouse.move(startX, startY + (deltaY * i) / stappen, { steps: 2 });
   }
@@ -72,9 +70,6 @@ async function volgordeVan(page) {
   check("V1. Volgorde start zoals toegevoegd", JSON.stringify(await volgordeVan(page)) === JSON.stringify(["Eén", "Twee", "Drie", "Vier"]));
   check("V3. Elk open item heeft een sleep-handvat", (await page.$$(".drag-handle")).length === 4);
 
-  // Naast slepen kan het ook met ↑/↓-knopjes achter het ⋯-menu (fijner op
-  // een telefoon dan precies moeten mikken) — bij het eerste item in de
-  // groep hoort "omhoog" uitgeschakeld te zijn, bij het laatste "omlaag".
   const eersteLi = page.locator("#list li[data-id]").first();
   await eersteLi.locator(".item-menu-btn").click();
   await page.waitForTimeout(80);
@@ -83,7 +78,6 @@ async function volgordeVan(page) {
   await page.click("body");
   await page.waitForTimeout(80);
 
-  // Sleep het eerste item ("Eén") ver genoeg naar beneden om voorbij "Twee" én "Drie" te komen.
   const li = page.locator('li[data-id]').first();
   const rowHeight = (await li.boundingBox()).height;
   await sleepVan(page, ".drag-handle >> nth=0", rowHeight * 2.5);
@@ -92,14 +86,11 @@ async function volgordeVan(page) {
   check("V4. 'Eén' staat na het verslepen verderop in de lijst", naVerslepen.indexOf("Eén") > 0);
   check("V5. Alle 4 items staan er nog steeds (niets kwijtgeraakt)", naVerslepen.length === 4 && ["Eén", "Twee", "Drie", "Vier"].every((n) => naVerslepen.includes(n)));
 
-  // Blijft bewaard na herladen
   await page.reload();
   await page.waitForSelector("#app:not([hidden])");
   const naHerladen = await volgordeVan(page);
   check("V6. Nieuwe volgorde blijft na herladen behouden", JSON.stringify(naHerladen) === JSON.stringify(naVerslepen));
 
-  // Ook los van slepen: het 2e item met de "omhoog"-knop (achter ⋯) een
-  // plekje naar voren zetten moet 'm laten wisselen met het 1e item.
   const verwachtNaKnop = [...naHerladen];
   [verwachtNaKnop[0], verwachtNaKnop[1]] = [verwachtNaKnop[1], verwachtNaKnop[0]];
   const tweedeLi = page.locator("#list li[data-id]").nth(1);
@@ -109,8 +100,6 @@ async function volgordeVan(page) {
   await page.waitForTimeout(150);
   check("V6b. Ook via ↑/↓ achter het ⋯-knopje verplaatsen werkt", JSON.stringify(await volgordeVan(page)) === JSON.stringify(verwachtNaKnop));
 
-  // --- Vastgepinde items vormen een eigen groep --- (de pin-knop zit
-  // achter het "⋯"-actiemenu van het item, dus dat moet eerst open).
   await page.click('li[data-id]:has-text("Vier") .item-menu-btn');
   await page.click('li[data-id]:has-text("Vier") .pin-btn');
   await page.waitForTimeout(100);

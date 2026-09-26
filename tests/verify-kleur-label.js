@@ -1,7 +1,4 @@
-// Verifieert de iPhone-kleurenkiezer-fix: #color-btn is nu een <label for="...">
-// die naar #color-picker wijst (in plaats van een knop die er met JS
-// overheen werd gestuurd), en de kleur-bolletje (swatch) toont steeds de
-// actuele kleur.
+// Verifieert dat #color-btn een <label for="..."> is die naar #color-picker wijst, en de swatch de actuele kleur toont.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -56,10 +53,7 @@ function check(label, cond) {
   const swatchColorInitial = await page.$eval("#color-swatch", (el) => getComputedStyle(el).backgroundColor);
   check("L3. Het kleur-bolletje heeft meteen een achtergrondkleur", swatchColorInitial && swatchColorInitial !== "rgba(0, 0, 0, 0)");
 
-  // Klik op het label zelf mag geen JS-fout geven (native label->input
-  // activatie kan in headless Chromium geen echt kleurenkiezer-scherm
-  // openen, maar de klik zelf moet foutloos verlopen).
-  await page.click("#color-btn");
+  await page.click("#color-btn"); // moet foutloos verlopen, ook al opent headless Chromium geen echt kleurenkiezer-scherm
   await page.waitForTimeout(150);
 
   await page.$eval("#color-picker", (input) => {
