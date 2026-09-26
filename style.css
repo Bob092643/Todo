@@ -91,9 +91,7 @@ h1, .brand {
   border-radius: 8px;
   cursor: pointer;
   border-bottom: 1px dashed rgba(255, 255, 255, 0.5);
-  /* Een lange lijstnaam mag de kop nooit naar 2 regels duwen — dan liever
-     een net afgekapt naampje met "...". Tikken op de naam toont 'm altijd
-     volledig (in het prompt-venstertje om 'm te wijzigen). */
+  /* Lange naam afkappen met "..." i.p.v. de kop naar 2 regels te duwen. */
   display: block;
   min-width: 0;
   max-width: 100%;
@@ -199,10 +197,7 @@ h1, .brand {
 }
 
 .archive-panel {
-  /* Zelfde reden als bij <main>: zonder dit vult dit paneel niet de
-     resterende hoogte, en komt de onderste statusbalk (Gesynchroniseerd...
-     + code) meteen na het laatste lijstje/item te staan — halverwege het
-     scherm — in plaats van onderaan. */
+  /* flex: 1, net als <main>, zodat de statusbalk onderaan blijft i.p.v. halverwege het scherm. */
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -212,12 +207,7 @@ h1, .brand {
   padding: 0 16px 32px;
 }
 
-/* Eigen "display: flex" hierboven wint anders van de standaard
-   [hidden]-regel van de browser (die alleen "display: none" is) — net als
-   bij .toast hieronder — waardoor een verborgen paneel (bijv.
-   #settings-panel terwijl het ☰-paneel open staat) toch nog steeds
-   meerekent voor de lay-out en zichtbaar zou blijven, met de statusbalk
-   er ver onder geduwd in plaats van pal onderaan. */
+/* Eigen "display: flex" wint anders van de browser's [hidden]-regel, en het paneel zou zichtbaar blijven. */
 .archive-panel[hidden] {
   display: none;
 }
@@ -235,10 +225,7 @@ h1, .brand {
   color: var(--text);
 }
 
-/* .btn-ghost is ontworpen voor de donkerblauwe kop (witte tekst op een
-   doorzichtig vlak) — binnen een lichte paneelachtergrond (archief- en
-   instellingenpaneel) is dat vrijwel onzichtbaar. Hier krijgt het i.p.v.
-   daarvan een duidelijk zichtbaar, lichtblauw uiterlijk. */
+/* .btn-ghost is ontworpen voor de donkerblauwe kop en is op een licht paneel bijna onzichtbaar. */
 .archive-panel .btn-ghost {
   background: var(--blue-50);
   color: var(--blue-600);
@@ -264,22 +251,13 @@ h1, .brand {
 
 .archive-panel .list li {
   flex-direction: row;
-  /* Mag om te wisselen naar een 2e regel: op een smal schermpje passen de
-     tekst van het item, "vervalt over X dagen" én de twee knoppen
-     ("Terugzetten"/"Verwijder definitief") gewoonweg niet allemaal op 1
-     regel. Zonder deze wrap kreeg de tekst (die als enige flex-kind kon
-     "meegeven") dan geen ruimte meer over en werd hij tot 0px breed in
-     elkaar gedrukt — met de tekst letter voor letter onder elkaar tot
-     gevolg. */
-  flex-wrap: wrap;
+  flex-wrap: wrap; /* zonder dit krimpt de tekst op smalle schermen tot letter-voor-letter opstapeling */
   align-items: center;
   gap: 6px 10px;
 }
 
 .archive-panel .list li .item-text {
-  /* Altijd een eigen volledige regel innemen (en dus nooit hoeven te
-     concurreren met de knoppen ernaast om de resterende breedte). */
-  flex-basis: 100%;
+  flex-basis: 100%; /* eigen regel, hoeft niet te concurreren met de knoppen */
   min-width: 0;
 }
 
@@ -338,9 +316,7 @@ h1, .brand {
   flex-shrink: 0;
 }
 
-/* Informatief label ("tabblad"), geen knop: laat zien of dit lijstje bij
-   de eerste 3 (dus als tabblad bovenin zichtbaar) hoort. Leeg (en dus
-   onzichtbaar, op de ruimte na) als dat niet zo is. */
+/* Informatief label, geen knop: leeg (onzichtbaar) als dit lijstje niet als tabblad staat. */
 .lists-panel-tab-badge {
   flex-shrink: 0;
   font-size: 0.72rem;
@@ -387,8 +363,7 @@ h1, .brand {
   margin-top: 20px;
 }
 
-/* Zonder deze regel toont elke browser er zelf een driehoekje/pijltje bij
-   — dat ziet er als los onderdeel wat rommelig uit naast onze eigen tekst. */
+/* Verbergt de browser's eigen driehoekje naast onze eigen chevron-tekst. */
 .danger-zone-toggle summary::-webkit-details-marker {
   display: none;
 }
@@ -408,9 +383,6 @@ h1, .brand {
   color: var(--danger);
 }
 
-/* Een tekstregel met alleen een "cursor: pointer" is op een touchscreen
-   (geen hover) niet te herkennen als tikbaar. Dit pijltje maakt dat in één
-   oogopslag duidelijk, en draait mee zodra de gevarenzone openstaat. */
 .danger-zone-chevron {
   display: inline-block;
   transition: transform 0.15s ease;
@@ -435,9 +407,6 @@ h1, .brand {
   font-size: 0.9rem;
 }
 
-/* Zelfde opklap-truukje als bij "Dit lijstje verwijderen…", maar dan
-   neutraal (geen rode gevarenkleur) — voor de uitleg-tekst die niet
-   iedere keer meteen in beeld hoeft te staan. */
 .info-toggle {
   margin-top: 4px;
 }
@@ -505,9 +474,7 @@ main {
 
 .add-row input {
   flex: 1;
-  min-width: 0; /* anders weigert een tekstveld in flexbox te krimpen, en
-                   duwt het de "Toevoegen"-knop op smalle schermen half
-                   buiten beeld */
+  min-width: 0; /* anders krimpt het tekstveld niet en duwt het de knop half buiten beeld */
   padding: 13px 16px;
   border-radius: 12px;
   border: 1px solid var(--border);
@@ -550,9 +517,6 @@ main {
   color: var(--muted);
 }
 
-/* Zelfde reden als bij .toast[hidden] elders in dit bestand: onze eigen
-   "display: block" zou anders de standaard [hidden]-regel van de browser
-   verslaan, en het veldje mét het hidden-attribuut toch in beeld laten. */
 .zoek-veld[hidden] {
   display: none;
 }
@@ -591,9 +555,7 @@ main {
   font-size: 0.8rem;
 }
 
-/* De "Kies kleur"-knop is een <label> (zie index.html) i.p.v. een <button>,
-   dus die krijgt zelf geen passende display/uitlijning van .btn — dat hier
-   alsnog geven. */
+/* <label>, geen <button>, dus geen passende display/uitlijning van .btn — hier alsnog geven. */
 .color-btn-label {
   display: inline-flex;
   align-items: center;
@@ -629,9 +591,7 @@ main {
   transition: opacity 0.25s ease, transform 0.25s ease, background 0.15s ease;
 }
 
-/* Compacte weergave — een eigen keuze (aan/uit-knopje in Instellingen),
-   niet iets dat vanzelf verandert naarmate de lijst groeit. Alleen op de
-   hoofdlijst (#list), niet in het archief of het ☰-paneel. */
+/* Compacte weergave, aan/uit via Instellingen. */
 #list.compact {
   gap: 6px;
 }
@@ -692,10 +652,7 @@ main {
   text-decoration: underline;
 }
 
-/* Versleep-handvat — vervangt de oude ↑/↓-knoppen: pak 'm vast en sleep
-   naar de gewenste plek, met muis of vinger. "touch-action: none" is hier
-   nodig zodat een vinger op dit handvat niet in plaats daarvan het scherm
-   laat scrollen. */
+/* touch-action: none voorkomt dat een vinger op het handvat het scherm laat scrollen. */
 .drag-handle {
   flex-shrink: 0;
   background: none;
@@ -722,10 +679,7 @@ main {
   box-shadow: var(--shadow);
   background: var(--card);
   border-radius: 12px;
-  /* Zodra een item echt versleept wordt mag de vinger niet meer als
-     scrollen tellen — zie ook de e.preventDefault() in onSlepen() in
-     app.js. (Het handvatje zelf heeft dit hierboven ook al staan.) */
-  touch-action: none;
+  touch-action: none; /* zie ook e.preventDefault() in onSlepen() in app.js */
 }
 
 .item-stale {
@@ -773,10 +727,7 @@ main {
   cursor: pointer;
   padding: 9px 9px;
   border-radius: 8px;
-  /* 📌 is zelf al rood/oranje gekleurd — alleen doorzichtigheid als signaal
-     voor "niet vastgepind" viel in fel licht of op een klein scherm
-     nauwelijks op. Grijstinten geeft een veel duidelijker verschil. */
-  filter: grayscale(1);
+  filter: grayscale(1); /* opacity alleen viel te weinig op als "niet vastgepind"-signaal */
   opacity: 0.55;
   transition: opacity 0.15s ease, background 0.15s ease, filter 0.15s ease;
 }
@@ -793,9 +744,6 @@ main {
   border-color: var(--blue-500);
 }
 
-/* Favoriet-knopje (★/☆) — werkt op de itemtekst, niet op dit ene
-   exemplaar: staat er dus ook nog steeds hetzelfde bij als het item al is
-   afgevinkt. */
 .fav-btn {
   flex-shrink: 0;
   background: none;
@@ -828,8 +776,6 @@ main {
   }
 }
 
-/* "Bezig"-knop bij een item — los van het vinkje (open/afgevinkt): een
-   extra seintje dat iemand hier al mee bezig is. */
 .bezig-btn {
   flex-shrink: 0;
   background: none;
@@ -868,8 +814,6 @@ main {
   }
 }
 
-/* Zodra een item is afgevinkt is "bezig" niet meer relevant (de knop
-   verwijdert de status ook al meteen zelf, dit is puur de weergave). */
 .list li.done .bezig-btn {
   display: none;
 }
@@ -890,9 +834,6 @@ main {
   }
 }
 
-/* Compact badge met initialen i.p.v. een hele regel "Toegevoegd door X" /
-   "Afgevinkt door X" — kleur per persoon (zie kleurVoor() in app.js), volledige
-   naam blijft beschikbaar via title/aria-label. */
 .attributie-badge {
   flex-shrink: 0;
   display: inline-flex;
@@ -962,10 +903,7 @@ main {
 .toast {
   position: fixed;
   left: 50%;
-  /* Vervangen in JS door de werkelijke hoogte van de voettekst + wat
-     marge, zodat het balkje er nooit overheen hangt — dit is alleen de
-     terugvaloptie voor als dat om wat voor reden dan ook niet lukt. */
-  bottom: max(72px, env(safe-area-inset-bottom, 0px));
+  bottom: max(72px, env(safe-area-inset-bottom, 0px)); /* fallback; JS zet de echte hoogte */
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -981,10 +919,7 @@ main {
 }
 
 #toast-text {
-  /* Mag best 2 regels worden i.p.v. na een handvol tekens af te kappen —
-     "Wc-papier en handdoekjes" is af..." was nauwelijks nog te lezen.
-     Alleen bij een echt extreem lange itemnaam knipt het (met "...") na
-     2 regels af, in plaats van meteen na de eerste. */
+  /* Tot 2 regels toestaan voordat af te kappen (1 regel knipte te vroeg af). */
   flex: 1 1 auto;
   min-width: 0;
   display: -webkit-box;
@@ -997,9 +932,7 @@ main {
   flex-shrink: 0;
 }
 
-/* Eigen CSS zoals hierboven wint anders van de standaard [hidden]-regel
-   van de browser (die alleen "display: none" is), waardoor het balkje mét
-   het hidden-attribuut toch in beeld zou blijven staan. */
+/* Wint anders van de browser's [hidden]-regel en blijft het balkje zichtbaar. */
 .toast[hidden] {
   display: none;
 }
@@ -1081,18 +1014,8 @@ main {
 
 .item-text {
   flex: 1;
-  /* Zonder dit blijft een flex-kind in de breedte "vasthouden" aan zijn
-     langste woord, ook als er domweg geen ruimte voor is — in het archief
-     (met de bredere knoppen "Terugzetten"/"Verwijder definitief" ernaast
-     op een smal schermpje) leidde dat ertoe dat de tekst tot bijna 0px
-     breedte in elkaar gedrukt werd en daardoor letter voor letter onder
-     elkaar kwam te staan in plaats van gewoon netjes af te breken.
-     "word-break: break-word" is een oude, niet-standaard eigenschap die
-     Firefox anders interpreteert dan Chrome/Safari bij het berekenen van
-     de minimale breedte van een flex-kind — juist dat verschil kon in
-     Firefox alsnog tot dezelfde letter-voor-letter opstapeling leiden.
-     "overflow-wrap: break-word" is de standaard vervanger en gedraagt
-     zich in alle browsers hetzelfde. */
+  /* min-width: 0 voorkomt letter-voor-letter opstapelen op smalle schermen;
+     overflow-wrap (i.p.v. het non-standaard word-break) werkt gelijk in alle browsers. */
   min-width: 0;
   overflow-wrap: break-word;
   transition: color 0.15s ease;
@@ -1114,9 +1037,6 @@ main {
   background: rgba(229, 72, 77, 0.1);
 }
 
-/* "⋯"-actiemenu per item — favoriet/bezig/vastpinnen/verwijderen zaten
-   eerst allemaal los naast elkaar (te veel knopjes op één regel), en staan
-   nu achter dit ene overzichtelijke knopje. */
 .item-menu-wrap {
   position: relative;
   flex-shrink: 0;
@@ -1259,9 +1179,7 @@ main {
 .status-dot.synced { background: var(--success); }
 .status-dot.saving { background: var(--warning); animation: pulse 1s ease-in-out infinite; }
 .status-dot.error { background: var(--danger); }
-/* Bewust geen rood/oranje "foutkleurtje" — offline zijn is niets mis mee,
-   dus dat moet er ook geruststellend uitzien, niet als een storing. */
-.status-dot.offline { background: var(--muted); }
+.status-dot.offline { background: var(--muted); } /* bewust geen foutkleur, offline is geen storing */
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
@@ -1315,8 +1233,6 @@ code {
   border-color: var(--blue-500);
 }
 
-/* "Snel toevoegen"-rijtje boven de lijst: favorieten + vaak toegevoegde
-   items, één tik erop en het staat op de lijst. */
 .snel-rij {
   display: flex;
   flex-wrap: wrap;

@@ -1,8 +1,4 @@
-// TEST-ONLY nepversie van de Firestore SDK-functies die app.js gebruikt.
-// Simuleert een cloud-database via localStorage (gedeeld tussen tabs van
-// dezelfde origin) + BroadcastChannel (voor live updates tussen tabs),
-// zodat we de echte app-logica kunnen testen zonder een echt
-// Firebase-project nodig te hebben.
+// TEST-ONLY nepversie van Firestore: simuleert de database via localStorage + BroadcastChannel (voor live updates).
 
 const localListeners = {};
 
@@ -24,12 +20,6 @@ export function getFirestore() {
   return {};
 }
 
-// TEST-ONLY: de echte app gebruikt initializeFirestore() met een
-// persistentLocalCache() voor beter offline-gedrag (zie app.js). Deze
-// nepversie hoeft dat niet echt te doen — de testomgeving simuleert de
-// database toch al via localStorage, wat op zich al "blijft bestaan na
-// herladen" oplevert — maar moet de aanroep wel kunnen accepteren zonder
-// fouten te geven.
 export function initializeFirestore(_app, _settings) {
   return {};
 }
@@ -56,23 +46,14 @@ export async function getDoc(ref) {
 
 export async function setDoc(ref, data) {
   localStorage.setItem("mockdoc:" + ref.path, JSON.stringify(data));
-  // Een los kanaal-object (ook al heet het hetzelfde) ontvangt zijn eigen
-  // berichten niet, maar ANDERE kanaal-objecten met deze naam - inclusief
-  // het luisterende kanaal van onSnapshot in dit zelfde tabblad - wel. Dus
-  // niet ook nog lokaal direct notify() aanroepen, anders komt de update
-  // dubbel binnen (once direct, once via de broadcast).
+  // Geen losse notify() hier: de onSnapshot-listener in dit tabblad heeft een eigen kanaal-object en hoort dit bericht al.
   const ch = new BroadcastChannel("mock-firestore-" + ref.path);
   ch.postMessage({ type: "update" });
   ch.close();
 }
 
-// TEST-ONLY nepversie van een Firestore-transactie: leest de nieuwste
-// stand, laat de meegegeven functie daarmee een nieuwe waarde bepalen, en
-// schrijft die pas weg als er tussen het lezen en het schrijven niemand
-// anders is geweest (simpele "compare-and-swap", net als de echte
-// Firestore-transacties onder de motorkap doen). Is er ondertussen wél
-// iemand anders geweest, dan proberen we het gewoon opnieuw met de
-// allernieuwste stand — ook precies zoals de échte Firestore-SDK dat doet.
+// Simuleert een Firestore-transactie via compare-and-swap: schrijft alleen weg als niemand
+// anders tussen lezen en schrijven iets veranderde, anders opnieuw proberen met de nieuwste stand.
 export async function runTransaction(_db, updateFunction, { maxAttempts = 8 } = {}) {
   for (let poging = 0; poging < maxAttempts; poging++) {
     let gelezenPad = null;
@@ -97,12 +78,7 @@ export async function runTransaction(_db, updateFunction, { maxAttempts = 8 } = 
 
     if (!teSchrijvenRef) return; // de functie heeft niets weggeschreven
 
-    // Vlak vóór het echt schrijven nog één keer vergelijken met wat er nu
-    // (op dit allerlaatste moment) in de opslag staat — is dat nog exact
-    // hetzelfde als wat we bij transaction.get() lazen, dan schrijven we
-    // gewoon weg. Is het ondertussen veranderd, dan botsen we en proberen
-    // we de hele functie (met de nieuwste stand) nog een keer.
-    const nuRuw = localStorage.getItem("mockdoc:" + gelezenPad);
+    const nuRuw = localStorage.getItem("mockdoc:" + gelezenPad); // botst als dit is veranderd sinds get()
     if (nuRuw !== gelezenRuw) continue;
 
     localStorage.setItem("mockdoc:" + teSchrijvenRef.path, JSON.stringify(teSchrijvenData));

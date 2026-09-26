@@ -1,9 +1,5 @@
-// Verifieert twee nieuwe fixes:
-// 1. De onderste statusbalk (Gesynchroniseerd... + code) blijft nu echt
-//    onderaan het scherm staan in het ☰-lijstjespaneel en het archiefpaneel,
-//    ook als er maar weinig lijstjes/items in staan (overlap-bug).
-// 2. Een verwijderd (gearchiveerd) lijstje kan nu ook definitief verwijderd
-//    worden, zowel een gedeeld als een privé lijstje.
+// Verifieert dat de statusbalk onderaan blijft (geen overlap) in ☰-paneel/archief,
+// en dat een gearchiveerd lijstje (gedeeld of privé) definitief verwijderd kan worden.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -32,11 +28,8 @@ function check(label, cond) {
   if (cond) pass++; else fail++;
 }
 
+// <details> onthoudt open/dicht in de DOM: zet direct, niet via een klik (die zou juist weer dichtklappen).
 async function openDangerZone(page) {
-  // <details> onthoudt zijn open/dicht-status in de DOM (het paneel wordt
-  // alleen verborgen via [hidden], niet opnieuw opgebouwd) — dus niet
-  // blindelings nog een keer klikken (dat klapt 'm juist weer dicht als
-  // hij al open stond van een vorige keer in deze test).
   await page.evaluate(() => {
     document.querySelector(".danger-zone-toggle").open = true;
   });
@@ -61,9 +54,7 @@ async function withDialogQueue(page, answers, fn) {
   const base = `http://localhost:${port}`;
   const browser = await chromium.launch();
 
-  // ============================================================
   // M. Statusbalk blijft onderaan (geen overlap) in ☰-paneel en archief
-  // ============================================================
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } }); // telefoonformaat
     const page = await ctx.newPage();
@@ -93,9 +84,7 @@ async function withDialogQueue(page, answers, fn) {
     await ctx.close();
   }
 
-  // ============================================================
   // N. Een gearchiveerd lijstje definitief verwijderen (gedeeld + privé)
-  // ============================================================
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -103,9 +92,6 @@ async function withDialogQueue(page, answers, fn) {
     await page.waitForSelector("#app:not([hidden])");
     await page.waitForTimeout(200);
 
-    // --- Gedeeld lijstje archiveren (dit is het enige lijstje; de app
-    // schakelt daarna automatisch naar een nieuw leeg vervang-lijstje, via
-    // de eigen onSnapshot-echo van het opslaan — geen extra dialoogvragen) ---
     await page.click("#archive-btn");
     await openDangerZone(page);
     await withDialogQueue(page, [true], async () => {
@@ -115,10 +101,8 @@ async function withDialogQueue(page, answers, fn) {
     await page.waitForSelector("#app:not([hidden])");
     await page.waitForTimeout(200);
 
-    // --- Privé lijstje toevoegen en meteen archiveren ---
     await page.click("#lists-btn");
     await page.waitForSelector("#lists-panel:not([hidden])");
-    // "+ Nieuw lijstje" vraagt via dialogen: nieuw/bestaand → naam → delen/privé.
     await withDialogQueue(page, [true, "Privé test", false], async () => {
       await page.click("#lists-add-btn");
       await page.waitForTimeout(300);
@@ -129,8 +113,6 @@ async function withDialogQueue(page, answers, fn) {
     await page.waitForTimeout(150);
     await page.click("#archive-btn");
     await openDangerZone(page);
-    // "Vervangend lijstje" (gedeeld) bestaat nog, dus geen extra
-    // vervang-lijstje-dialogen nodig — de app schakelt er gewoon naartoe.
     await withDialogQueue(page, [true], async () => {
       await page.click("#delete-list-btn");
       await page.waitForTimeout(300);
@@ -142,19 +124,16 @@ async function withDialogQueue(page, answers, fn) {
     const archivedText = await page.textContent("#lists-panel-archived");
     check("N1. Beide gearchiveerde lijstjes tonen nu een 'Verwijder definitief'-knop", (await page.locator('#lists-panel-archived button:has-text("Verwijder definitief")').count()) === 2);
 
-    // Definitief verwijderen van de eerste (gedeelde) gearchiveerde lijst.
     const beforeCount = await page.locator("#lists-panel-archived > li").count();
     await page.click('#lists-panel-archived button:has-text("Verwijder definitief")');
     await page.waitForTimeout(200);
     const afterCount = await page.locator("#lists-panel-archived > li").count();
     check("N2. Na 'Verwijder definitief' is er één lijstje minder in het archiefgedeelte", afterCount === beforeCount - 1);
 
-    // Definitief verwijderen van de resterende (privé) gearchiveerde lijst.
     await page.click('#lists-panel-archived button:has-text("Verwijder definitief")');
     await page.waitForTimeout(200);
     check("N3. Na het definitief verwijderen van de tweede is het archiefgedeelte weer leeg", await page.isHidden("#lists-panel-archived-section"));
 
-    // Herladen: blijft echt weg (niet alleen lokaal uit beeld).
     await page.reload();
     await page.waitForSelector("#app:not([hidden])");
     await page.click("#lists-btn");

@@ -1,8 +1,5 @@
-// Volledige testreeks voor de Boodschappenlijst-app (loopt tegen de mock-
-// Firestore, dus zonder een echt Firebase-project nodig te hebben). Dekt
-// alle functionaliteit die in dit project zit: basis boodschappenlijst,
-// realtime synchronisatie, lijst-code gedrag, naam, persoonlijke kleur, en
-// de config-waarschuwing.
+// Volledige testreeks tegen de mock-Firestore: basisfunctionaliteit, sync, lijst-code,
+// naam, kleur, meerdere lijstjes, tabblad-volgorde, archief, migraties en de config-waarschuwing.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -31,12 +28,7 @@ function check(label, cond) {
   if (cond) pass++; else fail++;
 }
 
-// Playwright's page.once("dialog", ...) registers alle op dat moment
-// aangemelde listeners vóór de eerstvolgende dialog — bij twee dialogs
-// ná elkaar (bv. eerst confirm(), dan prompt()) vuren ze dus NIET één
-// voor één. Deze helper handelt dialogs één voor één af, in volgorde,
-// aan de hand van een wachtrij met antwoorden (true/string = accepteren,
-// false = annuleren/dismiss).
+// Handelt meerdere dialogs (bv. confirm() gevolgd door prompt()) één voor één af via een antwoorden-wachtrij.
 async function withDialogQueue(page, answers, fn) {
   const queue = [...answers];
   const handler = async (dialog) => {
@@ -74,9 +66,7 @@ async function withServer(root, fn) {
   const configuredRoot = path.join(SCRATCH, "test-run");
   const unconfiguredRoot = path.join(SCRATCH, "test-unconfigured");
 
-  // ============================================================
   // A. Basisfunctionaliteit (toevoegen, afvinken, verwijderen, leeg)
-  // ============================================================
   await withServer(configuredRoot, async (base) => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -103,9 +93,7 @@ async function withServer(root, fn) {
     await ctx.close();
   });
 
-  // ============================================================
   // B. Realtime synchronisatie tussen twee "gezinsleden" (zelfde lijst)
-  // ============================================================
   await withServer(configuredRoot, async (base) => {
     const ctx = await browser.newContext();
     const page1 = await ctx.newPage();
@@ -128,9 +116,7 @@ async function withServer(root, fn) {
     await ctx.close();
   });
 
-  // ============================================================
   // C. Lijst-code gedrag
-  // ============================================================
   await withServer(configuredRoot, async (base) => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -147,10 +133,7 @@ async function withServer(root, fn) {
     await page.waitForSelector("#app:not([hidden])");
     check("C3. Andere code in de link stapt over naar dat andere gezinnetje", new URL(page.url()).searchParams.get("lijst") === "code-BBB-ander-gezinnetje");
 
-    // Terug naar het eerste gezinnetje (bewust de code terugplakken — een
-    // toestel volgt maar 1 gezinnetje tegelijk) om de rest van de C-serie
-    // zoals voorheen te laten verlopen.
-    page.on("dialog", (d) => d.accept("code-AAA"));
+    page.on("dialog", (d) => d.accept("code-AAA")); // terug naar het eerste gezinnetje voor de rest van de C-serie
     await page.click("#list-code-btn");
     await page.waitForURL(/lijst=code-AAA/, { timeout: 3000 }).catch(() => {});
     page.removeAllListeners("dialog");
@@ -188,9 +171,7 @@ async function withServer(root, fn) {
     await ctx.close();
   });
 
-  // ============================================================
   // D. Naam
-  // ============================================================
   await withServer(configuredRoot, async (base) => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -207,9 +188,7 @@ async function withServer(root, fn) {
     await ctx.close();
   });
 
-  // ============================================================
   // E. Persoonlijke kleur
-  // ============================================================
   await withServer(configuredRoot, async (base) => {
     const ctxA = await browser.newContext();
     const pageA = await ctxA.newPage();
@@ -236,7 +215,6 @@ async function withServer(root, fn) {
     const colorAfterReload = await pageA.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--blue-600").trim());
     check("E3. Kleur blijft staan na herladen", colorAfterReload.toLowerCase() === "#9333ea");
 
-    // Kleur en reset-knop staan sinds kort achter het ⚙️-instellingenpaneel.
     await pageA.click("#settings-btn");
     await pageA.waitForTimeout(100);
     await pageA.click("#color-reset-btn");
@@ -253,9 +231,7 @@ async function withServer(root, fn) {
     await ctxB.close();
   });
 
-  // ============================================================
   // G. Meerdere lijstjes binnen 1 gezinnetje (☰-paneel, gedeeld/privé)
-  // ============================================================
   await withServer(configuredRoot, async (base) => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -267,7 +243,6 @@ async function withServer(root, fn) {
     await openListsPanel(page);
     check("G2. Het ☰-paneel toont het eerste lijstje ('Onze lijst')", (await page.textContent("#lists-panel-list")).includes("Onze lijst"));
 
-    // Nieuw gedeeld lijstje aanmaken via het paneel.
     await withDialogQueue(page, [true, "Klusjes", true], async () => {
       await page.click("#lists-add-btn");
       await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
@@ -280,21 +255,18 @@ async function withServer(root, fn) {
     await page.waitForTimeout(150);
     check("G4. Het nieuwe item staat in 'Klusjes'", (await page.textContent("#list")).includes("Prullenbak buiten zetten"));
 
-    // Terug naar het eerste lijstje via het paneel: dat moet leeg zijn gebleven.
     await openListsPanel(page);
     await page.click(`.lists-panel-name:has-text("Onze lijst")`);
     await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
     check("G5. Het eerste lijstje blijft leeg (lijstjes staan los van elkaar)", await page.isVisible("#empty-hint"));
 
-    // Terug naar Klusjes: het item moet er nog staan.
     await openListsPanel(page);
     await page.click(`.lists-panel-name:has-text("Klusjes")`);
     await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
     check("G6. Terug op 'Klusjes' staat het item er nog steeds", (await page.textContent("#list")).includes("Prullenbak buiten zetten"));
 
-    // Nieuw privé lijstje aanmaken.
     await openListsPanel(page);
     await withDialogQueue(page, [true, "Verjaardagslijst", false], async () => {
       await page.click("#lists-add-btn");
@@ -309,14 +281,12 @@ async function withServer(root, fn) {
     await page.waitForTimeout(100);
     check("G8. Delen van een privé lijstje wordt geblokkeerd met uitleg", !!alertMsg && alertMsg.includes("niet delen"));
 
-    // In het paneel heeft alleen het gedeelde lijstje een verberg-kruisje.
     await openListsPanel(page);
     const priveRow = page.locator(".lists-panel-row", { hasText: "Verjaardagslijst" });
     const gedeeldRow = page.locator(".lists-panel-row", { hasText: "Klusjes" });
     check("G9. Een privé lijstje heeft geen 'verbergen'-knop", (await priveRow.locator(".lists-panel-hide").count()) === 0);
     check("G10. Een gedeeld lijstje heeft wél een 'verbergen'-knop", (await gedeeldRow.locator(".lists-panel-hide").count()) === 1);
 
-    // "Klusjes" verbergen op dit toestel (niet-destructief: het lijstje zelf blijft bestaan).
     page.once("dialog", (d) => d.accept());
     await gedeeldRow.locator(".lists-panel-hide").click();
     await page.waitForTimeout(150);
@@ -325,21 +295,10 @@ async function withServer(root, fn) {
     await ctx.close();
   });
 
-  // ============================================================
-  // H. Volgorde bepaalt de tabbladen (geen apart "vastpinnen" meer) en het
-  // "iets nieuws"-teken
-  //
-  // Hoeveel lijstjes er als tabblad passen is sinds kort dynamisch (hangt
-  // af van de beschikbare breedte, zie renderTabs() in app.js), niet meer
-  // een vast aantal van 3. Om deze sectie's verhaal (2 passen, 3 passen,
-  // een 4e nét niet meer) toch voorspelbaar te kunnen testen, gebruiken we
-  // hier bewust een smal (mobiel-achtig) viewport van 400px: bij die
-  // breedte passen "Onze lijst"/"Tweede lijst"/"Derde lijst" nog precies
-  // op de regel, maar "Vierde lijst" niet meer (uitgeprobeerd/bevestigd op
-  // meerdere breedtes — zie ook verify-dynamische-tabbladen.js voor een
-  // test die de breedte-afhankelijkheid zelf, i.p.v. een vast aantal,
-  // rechtstreeks controleert).
-  // ============================================================
+  // H. Volgorde bepaalt de tabbladen en het "iets nieuws"-teken. Hoeveel
+  // lijstjes passen is dynamisch (breedte-afhankelijk, zie renderTabs() in
+  // app.js); een vast 400px-viewport hier houdt "3 passen, een 4e niet"
+  // voorspelbaar (zie verify-dynamische-tabbladen.js voor de breedte-test zelf).
   await withServer(configuredRoot, async (base) => {
     const ctx = await browser.newContext({ viewport: { width: 400, height: 720 } });
     const page1 = await ctx.newPage();
@@ -369,9 +328,6 @@ async function withServer(root, fn) {
     await openListsPanel(page1);
     check("H3b. Het 4e lijstje staat wél gewoon in het ☰-paneel", (await page1.textContent("#lists-panel-list")).includes("Vierde lijst"));
 
-    // "Vierde lijst" met de pijltjes helemaal naar boven verplaatsen (3x) —
-    // daarmee zou 'ie zelf een tabblad moeten worden, en "Derde lijst"
-    // (die nu uit de eerste 3 valt) niet meer.
     const vierdeRow = page1.locator(".lists-panel-row", { hasText: "Vierde lijst" });
     await vierdeRow.locator(".move-btn").first().click();
     await page1.waitForTimeout(80);
@@ -385,17 +341,11 @@ async function withServer(root, fn) {
     const tabLabelsNaVerschuiven = await page1.locator(".list-tab .list-tab-label").allInnerTexts();
     check("H5. ...en 'Derde lijst' is daardoor geen tabblad meer", !tabLabelsNaVerschuiven.some((t) => t.includes("Derde lijst")));
 
-    // Terug naar "Onze lijst", zodat "Tweede lijst" niet meer het actieve
-    // lijstje van dit toestel is (nodig om het "iets nieuws"-teken te zien).
-    await page1.click(`.lists-panel-name:has-text("Onze lijst")`);
+    await page1.click(`.lists-panel-name:has-text("Onze lijst")`); // niet meer het actieve lijstje, nodig voor het "iets nieuws"-teken
     await page1.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page1.waitForSelector("#app:not([hidden])");
 
-    // Op een 2e tabblad (zelfde toestel/context, dus zelfde gedeelde data)
-    // "Tweede lijst" bewerken (die staat, ook na het verschuiven hierboven,
-    // nog steeds als tabblad), zodat er op het eerste tabblad een
-    // "iets nieuws"-teken hoort te verschijnen.
-    const page2 = await ctx.newPage();
+    const page2 = await ctx.newPage(); // 2e tabblad, bewerkt "Tweede lijst" om het teken te triggeren
     await page2.goto(`${base}/index.html?lijst=volgorde-test&actief=${encodeURIComponent(tweedeId)}`);
     await page2.waitForSelector("#app:not([hidden])");
     await page2.fill("#new-item", "Iets nieuws toevoegen");
@@ -418,9 +368,7 @@ async function withServer(root, fn) {
     await ctx.close();
   });
 
-  // ============================================================
   // I. Lijst archiveren/terugzetten, en een item definitief verwijderen
-  // ============================================================
   await withServer(configuredRoot, async (base) => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -451,7 +399,6 @@ async function withServer(root, fn) {
     await page.waitForTimeout(150);
     check("I3. 'Terugzetten' zet het lijstje weer terug tussen de gewone lijstjes", (await page.textContent("#lists-panel-list")).includes("Op te ruimen lijstje"));
 
-    // Een los item definitief verwijderen, zonder extra bevestiging.
     await page.click(`.lists-panel-name:has-text("Op te ruimen lijstje")`);
     await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
@@ -477,15 +424,11 @@ async function withServer(root, fn) {
     await ctx.close();
   });
 
-  // ============================================================
   // J. Bestaande (heel oude) gebruikers migreren naadloos naar een gezinnetje
-  // ============================================================
   await withServer(configuredRoot, async (base) => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
-    // Simuleer een toestel dat de app al had vóór de tabbladen-update:
-    // alleen de oude, enkele sleutel staat in localStorage.
-    await page.goto(`${base}/index.html`);
+    await page.goto(`${base}/index.html`); // simuleert een toestel van vóór de tabbladen-update
     await page.evaluate(() => {
       localStorage.clear();
       localStorage.setItem("boodschappenlijst:laatste-lijst-id", "migratie-test-lijst");
@@ -498,16 +441,12 @@ async function withServer(root, fn) {
     await ctx.close();
   });
 
-  // ============================================================
   // K. Losse oude tabbladen (vorige versie) samenvoegen tot 1 gezinnetje
-  // ============================================================
   await withServer(configuredRoot, async (base) => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
 
-    // Simuleer een toestel dat de vorige (tabbladen-)versie al gebruikte:
-    // 2 losse, elk apart gedeelde lijstjes, elk met hun eigen oude, platte
-    // Firestore-document.
+    // Simuleert een toestel met de vorige tabbladen-versie: 2 losse, apart gedeelde lijstjes.
     await page.goto(`${base}/index.html`);
     await page.evaluate(() => {
       localStorage.clear();
@@ -524,10 +463,8 @@ async function withServer(root, fn) {
       );
     });
 
+    // Het eerste tabblad wordt het gezinnetje zelf; het tweede wordt via 1 dialoog (gedeeld/privé) samengevoegd.
     await withDialogQueue(page, [true], async () => {
-      // Het eerste oude tabblad wordt automatisch het gezinnetje zelf
-      // (`oud-tabblad-hoofd`); het tweede is een écht los, apart lijstje dat
-      // via 1 bevestigingsdialoog (gedeeld/privé) wordt samengevoegd.
       await page.goto(`${base}/index.html`);
       await page.waitForSelector("#app:not([hidden])");
       await page.waitForTimeout(300);
@@ -546,9 +483,7 @@ async function withServer(root, fn) {
     await ctx.close();
   });
 
-  // ============================================================
   // F. Config-waarschuwing (config.js nog niet ingevuld)
-  // ============================================================
   await withServer(unconfiguredRoot, async (base) => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();

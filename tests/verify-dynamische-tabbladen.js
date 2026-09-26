@@ -1,15 +1,5 @@
-// Verifieert dat het aantal lijstjes dat als tabblad bovenaan staat
-// dynamisch is (afhankelijk van de beschikbare breedte en de lengte van de
-// namen), in plaats van een vast maximum van 3. Dit is het achterliggende
-// gedrag waar full-regression-suite.js's H-sectie op leunt (daar met een
-// vaste breedte van 400px, om die sectie's eigen verhaal voorspelbaar te
-// houden) — hier testen we de breedte-afhankelijkheid zelf, rechtstreeks:
-// - bij een brede/normale viewport passen er met korte namen best MEER dan
-//   3 lijstjes op één regel;
-// - bij een smalle viewport (of lange namen) passen er juist MINDER dan 3,
-//   maar de rest blijft gewoon bereikbaar via het ☰-paneel;
-// - het venster live breder/smaller maken (resize) berekent opnieuw hoeveel
-//   er passen, zonder dat je iets hoeft te herladen.
+// Verifieert dat het aantal tabbladen dynamisch is (afhankelijk van breedte en
+// naamlengte, niet een vast maximum), inclusief live opnieuw berekenen bij resize.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -59,12 +49,7 @@ async function openListsPanel(page) {
   await page.waitForSelector("#lists-panel:not([hidden])");
 }
 
-// Onderdrukt de (losstaande, eenmalige) "Hoe wil je genoemd worden?"-vraag
-// die 300ms na het starten van de app verschijnt: anders kan die per ongeluk
-// tussen onze eigen dialoogvragen (voor het aanmaken van een lijstje) door
-// piepen, waardoor de dialoogwachtrij een plekje opschuift. Dit is een
-// bestaand, hier niet relevant onderdeel van de app — we zetten 'm hier
-// alleen uit zodat DEZE test zich puur op de tabbladen kan richten.
+// Onderdrukt de "Hoe wil je genoemd worden?"-vraag, anders kan die de dialoogwachtrij van deze test verstoren.
 async function onderdrukNaamVraag(page) {
   await page.addInitScript(() => {
     try {
@@ -91,10 +76,7 @@ async function nieuwGedeeldLijstje(page, naam) {
   const base = `http://localhost:${port}`;
   const browser = await chromium.launch();
 
-  // ============================================================
-  // A. Bij een brede viewport passen met korte namen MEER dan 3 lijstjes
-  //    als tabblad (het oude gedrag liet er hier hooguit 3 zien).
-  // ============================================================
+  // A. Bij een brede viewport passen met korte namen meer dan 3 lijstjes als tabblad.
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
     const page = await ctx.newPage();
@@ -109,8 +91,7 @@ async function nieuwGedeeldLijstje(page, naam) {
       await nieuwGedeeldLijstje(page, naam);
     }
 
-    // 4 lijstjes + de ☰-knop = 5 elementen met class .list-tab.
-    const labels = await page.locator(".list-tab .list-tab-label").allInnerTexts();
+    const labels = await page.locator(".list-tab .list-tab-label").allInnerTexts(); // 4 lijstjes + ☰-knop = 5 .list-tab
     check(
       "A1. Bij 1280px passen alle 4 (korte) lijstjes als tabblad",
       (await page.locator(".list-tab").count()) === 5 &&
@@ -122,10 +103,7 @@ async function nieuwGedeeldLijstje(page, naam) {
     await ctx.close();
   }
 
-  // ============================================================
-  // B. Bij een smalle (mobiele) viewport passen juist MINDER dan 3
-  //    lijstjes, maar de rest blijft bereikbaar via het ☰-paneel.
-  // ============================================================
+  // B. Bij een smalle viewport passen minder lijstjes, de rest blijft bereikbaar via het ☰-paneel.
   {
     const ctx = await browser.newContext({ viewport: { width: 360, height: 720 } });
     const page = await ctx.newPage();
@@ -159,10 +137,7 @@ async function nieuwGedeeldLijstje(page, naam) {
     await ctx.close();
   }
 
-  // ============================================================
-  // C. Het venster live breder/smaller maken berekent opnieuw hoeveel
-  //    lijstjes er als tabblad passen, zonder herladen.
-  // ============================================================
+  // C. Het venster live breder/smaller maken berekent opnieuw hoeveel lijstjes passen, zonder herladen.
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
     const page = await ctx.newPage();
@@ -181,8 +156,7 @@ async function nieuwGedeeldLijstje(page, naam) {
     check("C1. Breed: alle 4 lijstjes passen (5 tabbladelementen incl. ☰)", tabCountBreed === 5);
 
     await page.setViewportSize({ width: 360, height: 720 });
-    // De resize-listener is met opzet 150ms gedebouncet.
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(400); // resize-listener is 150ms gedebouncet
     const tabCountSmalNaResize = await page.locator(".list-tab").count();
     check("C2. Na smaller maken van het venster passen er minder tabbladen", tabCountSmalNaResize < tabCountBreed);
 
@@ -196,11 +170,7 @@ async function nieuwGedeeldLijstje(page, naam) {
     await ctx.close();
   }
 
-  // ============================================================
-  // D. Lange namen laten er minder passen dan korte namen, óók bij
-  //    dezelfde (brede) viewport — het is de breedte van de tekst die
-  //    telt, niet een vast aantal lijstjes.
-  // ============================================================
+  // D. Lange namen laten er minder passen dan korte namen bij dezelfde viewport (tekstbreedte telt, geen vast aantal).
   {
     const ctx = await browser.newContext({ viewport: { width: 600, height: 720 } });
     const page = await ctx.newPage();

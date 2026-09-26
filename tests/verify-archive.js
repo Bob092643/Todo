@@ -1,6 +1,4 @@
-// Tests voor het archief (verwijderde items 30 dagen bewaren, en meteen
-// definitief kunnen verwijderen) en het archiveren/terugzetten van een hele
-// lijst via het ☰-lijstjespaneel, met hetzelfde 30-dagen-vangnet.
+// Tests voor het archief (30-dagen-vangnet) en het archiveren/terugzetten van items en hele lijsten.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -53,9 +51,7 @@ async function openListsPanel(page) {
   const base = `http://localhost:${port}`;
   const browser = await chromium.launch();
 
-  // ============================================================
   // I. Item archiveren en terugzetten
-  // ============================================================
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -96,9 +92,7 @@ async function openListsPanel(page) {
     await ctx.close();
   }
 
-  // ============================================================
   // J. Oude archiefitems (>30 dagen) worden automatisch definitief opgeruimd
-  // ============================================================
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -106,9 +100,6 @@ async function openListsPanel(page) {
     await page.waitForSelector("#app:not([hidden])");
     await page.waitForTimeout(300); // wacht tot het standaard-lijstje echt is opgeslagen
 
-    // Zet direct een document klaar (in het nieuwe formaat: 1 lijstje met
-    // 1 item dat al 31 dagen geleden is "verwijderd" en 1 van gisteren),
-    // zoals de mock-Firestore het zou opslaan.
     await page.evaluate(() => {
       const dayMs = 24 * 60 * 60 * 1000;
       const raw = localStorage.getItem("mockdoc:lists/archief-test-2");
@@ -126,7 +117,6 @@ async function openListsPanel(page) {
     check("J1. Het item van 31 dagen geleden is automatisch weg", !(await page.textContent("#archive-list")).includes("Heel oud spul"));
     check("J2. Het recente item (1 dag) staat nog wel in het archief", (await page.textContent("#archive-list")).includes("Recent verwijderd"));
 
-    // Ook echt opgeslagen (niet alleen lokaal opgeruimd) — herladen bevestigt dit.
     await page.reload();
     await page.waitForSelector("#app:not([hidden])");
     await page.waitForTimeout(200);
@@ -135,9 +125,7 @@ async function openListsPanel(page) {
     await ctx.close();
   }
 
-  // ============================================================
   // K. Een hele lijst verwijderen en terugzetten (via het ☰-paneel)
-  // ============================================================
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -151,22 +139,16 @@ async function openListsPanel(page) {
     await page.waitForTimeout(100);
     check("K0a. De gevarenzone is standaard ingeklapt (niet meteen een grote rode knop in beeld)", await page.isHidden("#delete-list-btn"));
 
-    // De gevarenzone zit achter een uitklapbare "Dit lijstje verwijderen…"-regel.
     await page.click(".danger-zone-summary");
     await page.waitForTimeout(100);
     check("K0b. De gevarenzone klapt open na een tik op de samenvatting", await page.isVisible("#delete-list-btn"));
 
-    // Op Annuleren klikken: niets gebeurt (geen woord meer dat je hoeft te
-    // typen — gewoon een simpele OK/Annuleren-vraag).
     await withDialogQueue(page, [false], async () => {
       await page.click("#delete-list-btn");
       await page.waitForTimeout(200);
     });
     check("K1. Annuleren bij de bevestiging verwijdert de lijst niet", (await page.textContent("#list")).includes("Belangrijk itempje"));
 
-    // Bevestigen: lijst wordt verwijderd (en de app schakelt automatisch
-    // naar een nieuw, leeg standaard-lijstje, want dit was de enige lijst
-    // van dit gezinnetje).
     await withDialogQueue(page, [true], async () => {
       await page.click("#delete-list-btn");
       await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
@@ -178,7 +160,6 @@ async function openListsPanel(page) {
     check("K3. De verwijderde lijst staat in het archiefgedeelte van het paneel", (await page.textContent("#lists-panel-archived")).includes("Onze lijst"));
     check("K4. Dat archiefgedeelte noemt het aantal resterende dagen", /vervalt over \d+ dag/.test(await page.textContent("#lists-panel-archived")));
 
-    // Herladen: blijft in de archief-staat (echt opgeslagen, niet alleen lokaal).
     await page.reload();
     await page.waitForSelector("#app:not([hidden])");
     await openListsPanel(page);
@@ -188,9 +169,7 @@ async function openListsPanel(page) {
     await page.waitForTimeout(150);
     check("K6. Na 'Terugzetten' staat de lijst weer tussen de gewone lijstjes", (await page.textContent("#lists-panel-list")).includes("Onze lijst"));
 
-    // De teruggezette lijst heet ook "Onze lijst", net als het lege
-    // vervang-lijstje dat na het verwijderen automatisch is aangemaakt — dus
-    // niet op naam klikken (dubbelzinnig), maar op de niet-actieve rij.
+    // Niet op naam klikken: die is dubbelzinnig met het vervang-lijstje (zelfde naam) — op de niet-actieve rij klikken.
     await page.click(".lists-panel-row:not(.active) .lists-panel-name");
     await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
@@ -199,9 +178,7 @@ async function openListsPanel(page) {
     await ctx.close();
   }
 
-  // ============================================================
   // L. Een lijst die al langer dan 30 dagen geleden verwijderd is
-  // ============================================================
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -227,11 +204,7 @@ async function openListsPanel(page) {
     await ctx.close();
   }
 
-  // ============================================================
-  // M. Vanuit het archief terug naar de gewone weergave via het
-  // (al-actieve) tabblad of de (al-actieve) rij in het ☰-paneel — niet
-  // alleen via het kruisje.
-  // ============================================================
+  // M. Vanuit het archief terug via het al-actieve tabblad of ☰-rij, niet alleen via het kruisje.
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();

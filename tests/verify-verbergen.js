@@ -1,12 +1,6 @@
-// Verifieert de "Verbergen" van een gedeeld lijstje op dit toestel:
-// 1. Blijft écht verborgen, ook na een sync/herlaad (dit was stuk: elke
-//    onSnapshot-tik zette het lijstje automatisch weer terug in de lokale
-//    volgorde).
-// 2. Staat na het verbergen in het nieuwe "Verborgen op dit toestel"-blok.
-// 3. Kan daar met "Terug laten zien" weer teruggezet worden (en verschijnt
-//    dan weer als tabblad/in de gewone lijst).
-// 4. Een privé lijstje heeft geen "Verbergen"-knop (kan niet, geen andere
-//    manier om 'm terug te vinden).
+// Verifieert "Verbergen" van een gedeeld lijstje: blijft verborgen na sync/herlaad
+// (regressie: onSnapshot zette het eerder automatisch terug), staat in "Verborgen
+// op dit toestel", kan worden teruggezet, en een privé lijstje heeft geen knop ervoor.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -63,8 +57,6 @@ async function withDialogQueue(page, answers, fn) {
   await page.waitForSelector("#app:not([hidden])");
   await page.waitForTimeout(200);
 
-  // Een 2e gedeeld lijstje erbij, zodat er iets is om te verbergen zonder
-  // meteen het allerlaatste lijstje kwijt te raken.
   await page.click("#lists-btn");
   await page.waitForSelector("#lists-panel:not([hidden])");
   await withDialogQueue(page, [true, "Zomerkamp lijstje", true], async () => {
@@ -73,7 +65,6 @@ async function withDialogQueue(page, answers, fn) {
   });
   await page.waitForSelector("#app:not([hidden])");
 
-  // En een privé lijstje, om te checken dat die geen "Verbergen"-knop heeft.
   await page.click("#lists-btn");
   await page.waitForSelector("#lists-panel:not([hidden])");
   await withDialogQueue(page, [true, "Ons privé lijstje", false], async () => {
@@ -91,7 +82,6 @@ async function withDialogQueue(page, answers, fn) {
   const zichtbaarVoor = await page.locator('.lists-panel-list .lists-panel-name:has-text("Zomerkamp lijstje")').count();
   check("V2. 'Zomerkamp lijstje' staat gewoon in de lijst vóór het verbergen", zichtbaarVoor === 1);
 
-  // Verbergen.
   await withDialogQueue(page, [true], async () => {
     await page.click('.lists-panel-row:has-text("Zomerkamp lijstje") button:has-text("Verbergen")');
     await page.waitForTimeout(200);
@@ -104,9 +94,6 @@ async function withDialogQueue(page, answers, fn) {
   const verborgenTekst = inVerborgenSectie ? await page.textContent("#lists-panel-hidden") : "";
   check("V4. Het lijstje staat nu in 'Verborgen op dit toestel'", inVerborgenSectie && verborgenTekst.includes("Zomerkamp lijstje"));
 
-  // De kern van de bug: blijft het verborgen na een herlaad (dus een verse
-  // onSnapshot-subscribe, precies het moment dat de oude code het stiekem
-  // weer terugzette)?
   await page.reload();
   await page.waitForSelector("#app:not([hidden])");
   await page.waitForTimeout(200);
@@ -119,10 +106,6 @@ async function withDialogQueue(page, answers, fn) {
   const nogSteedsInVerborgenSectie = await page.isVisible("#lists-panel-hidden-section");
   check("V6. En staat na herladen nog steeds in 'Verborgen op dit toestel'", nogSteedsInVerborgenSectie);
 
-  // Ook een gewone actie van een ANDER (gesimuleerd) toestel — bijv. een
-  // save op het huidige actieve lijstje — mag het verborgen lijstje niet
-  // laten terugkomen (dat was letterlijk het mechanisme van de bug: elke
-  // onSnapshot-tik, niet alleen een page-load).
   await page.click("#lists-close-btn");
   await page.fill("#new-item", "Iets toevoegen om een sync-tik te forceren");
   await page.click("button[type=submit]");
@@ -132,7 +115,6 @@ async function withDialogQueue(page, answers, fn) {
   const zichtbaarNaSync = await page.locator('#lists-panel-list .lists-panel-name:has-text("Zomerkamp lijstje")').count();
   check("V7. Blijft ook verborgen na een gewone sync-tik (niet alleen na herladen)", zichtbaarNaSync === 0);
 
-  // Terug laten zien.
   await page.click('#lists-panel-hidden button:has-text("Terug laten zien")');
   await page.waitForTimeout(200);
   const weerZichtbaar = await page.locator('#lists-panel-list .lists-panel-name:has-text("Zomerkamp lijstje")').count();
@@ -140,7 +122,6 @@ async function withDialogQueue(page, answers, fn) {
   const verborgenSectieLeeg = await page.isHidden("#lists-panel-hidden-section");
   check("V9. En de 'Verborgen'-sectie is weer leeg (verdwijnt dus zelf ook)", verborgenSectieLeeg);
 
-  // Blijft dat ook na herladen zo (dus niet alleen in-memory teruggezet)?
   await page.reload();
   await page.waitForSelector("#app:not([hidden])");
   await page.click("#lists-btn");

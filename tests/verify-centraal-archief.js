@@ -1,9 +1,6 @@
-// Verifieert dat het archief centraal is: verwijderde items van AL je
-// lijstjes (gedeeld en privé) staan bij elkaar, met een tagje erbij uit
-// welk lijstje het item kwam, en terugzetten/definitief verwijderen werkt
-// ook voor een item dat niet bij het momenteel actieve lijstje hoort. Ook:
-// wisselen van lijstje terwijl het archief openstaat knalt je er niet meer
-// uit (was eerder een bug/klacht).
+// Verifieert dat het archief centraal is (items van alle lijstjes, getagd), dat
+// terugzetten/verwijderen ook werkt voor niet-actieve lijstjes, en dat wisselen
+// van lijstje het archief niet meer sluit.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -60,10 +57,7 @@ async function openListsPanel(page) {
   const base = `http://localhost:${port}`;
   const browser = await chromium.launch();
 
-  // ============================================================
-  // A. Verwijderde items van 2 verschillende (gedeelde) lijstjes staan
-  //    samen in hetzelfde, centrale archief, elk met een tagje.
-  // ============================================================
+  // A. Verwijderde items van 2 verschillende lijstjes staan samen in het centrale archief, elk met een tagje.
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -73,19 +67,15 @@ async function openListsPanel(page) {
     await page.goto(`${base}/index.html?lijst=centraal-archief-test`);
     await page.waitForSelector("#app:not([hidden])");
 
-    // Eerste lijstje: "Boodschappen" (het standaardlijstje) — 1 item erin
-    // en meteen weer verwijderen.
     await page.fill("#new-item", "Melk");
     await page.click("button[type=submit]");
     await page.waitForTimeout(80);
     await page.locator("li:has-text('Melk') .delete-btn").click().catch(async () => {
-      // Verwijderen zit achter het ⋯-menu.
       await page.locator("li:has-text('Melk') .item-menu-btn").click();
       await page.locator("li:has-text('Melk') .delete-btn").click();
     });
     await page.waitForTimeout(400);
 
-    // Tweede, nieuw lijstje: "Klusjes" — ook 1 item erin, ook verwijderen.
     await openListsPanel(page);
     await withDialogQueue(page, [true, "Klusjes", true], async () => {
       await page.click("#lists-add-btn");
@@ -115,10 +105,7 @@ async function openListsPanel(page) {
     await ctx.close();
   }
 
-  // ============================================================
-  // B. Terugzetten/definitief verwijderen werkt ook voor een item dat NIET
-  //    bij het momenteel actieve lijstje hoort.
-  // ============================================================
+  // B. Terugzetten/definitief verwijderen werkt ook voor een item dat niet bij het actieve lijstje hoort.
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -135,8 +122,6 @@ async function openListsPanel(page) {
     await page.locator("li:has-text('Kaas') .delete-btn").click();
     await page.waitForTimeout(400);
 
-    // Nu naar een TWEEDE lijstje wisselen — "Kaas" hoort dus niet meer bij
-    // het actieve lijstje op het moment dat we 'm terugzetten/verwijderen.
     await openListsPanel(page);
     await withDialogQueue(page, [true, "Andere lijst", true], async () => {
       await page.click("#lists-add-btn");
@@ -163,10 +148,7 @@ async function openListsPanel(page) {
     await ctx.close();
   }
 
-  // ============================================================
-  // C. Wisselen van lijstje terwijl het archief openstaat knalt je er niet
-  //    meer uit (eerder een klacht: "dan knal je uit het archief").
-  // ============================================================
+  // C. Wisselen van lijstje terwijl het archief openstaat sluit het archief niet meer.
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -186,8 +168,6 @@ async function openListsPanel(page) {
     await page.click("#archive-btn");
     await page.waitForSelector("#archive-panel:not([hidden])");
 
-    // Nu via het TABBLAD (niet het ☰-paneel) naar het andere lijstje
-    // wisselen, terwijl het archief nog openstaat.
     await page.locator(".list-tab", { hasText: "Onze lijst" }).click();
     await page.waitForTimeout(150);
     check("C1. Het archief blijft gewoon open na het wisselen van tabblad", await page.isVisible("#archive-panel"));

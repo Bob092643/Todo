@@ -44,9 +44,7 @@ async function stelNaamIn(page, naam) {
   const base = `http://localhost:${port}`;
   const browser = await chromium.launch();
 
-  // ============================================================
   // A. Initialen en automatische kleur bij "Toegevoegd door"
-  // ============================================================
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -71,9 +69,7 @@ async function stelNaamIn(page, naam) {
     await ctx.close();
   }
 
-  // ============================================================
   // B. Botsende voorletters: 2 letters zodra 2 namen dezelfde 1e letter delen
-  // ============================================================
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -105,9 +101,7 @@ async function stelNaamIn(page, naam) {
     await ctx.close();
   }
 
-  // ============================================================
   // C. Zelf een badge-kleur kiezen in Instellingen
-  // ============================================================
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -133,8 +127,7 @@ async function stelNaamIn(page, naam) {
     await page.click("#settings-btn");
     await page.waitForSelector("#settings-panel:not([hidden])");
 
-    // Kies bewust een bolletje dat NIET de huidige (automatische) kleur is.
-    const bolletjes = page.locator("#badge-kleur-opties button");
+    const bolletjes = page.locator("#badge-kleur-opties button"); // kies er een die nog niet actief is
     const aantalBolletjes = await bolletjes.count();
     let gekozenIndex = -1;
     for (let i = 0; i < aantalBolletjes; i++) {
@@ -159,9 +152,7 @@ async function stelNaamIn(page, naam) {
     await ctx.close();
   }
 
-  // ============================================================
   // D. Een gekozen kleur is voor het hele gezinnetje zichtbaar
-  // ============================================================
   {
     const ctx = await browser.newContext();
     const page1 = await ctx.newPage();
@@ -184,10 +175,7 @@ async function stelNaamIn(page, naam) {
 
     await page1.fill("#new-item", "Eieren");
     await page1.click("button[type=submit]");
-    // Wachten tot ook echt de 400ms-debounce van scheduleSave() voorbij is
-    // (en de opslag naar de server is gegaan), anders ziet toestel 2 het
-    // item hieronder nog niet.
-    await page1.waitForTimeout(600);
+    await page1.waitForTimeout(600); // wacht tot de 400ms-debounce voorbij is en de opslag is voltooid
 
     await page2.goto(`${base}/index.html?lijst=badge-kleur-sync-test`);
     await page2.waitForSelector("#app:not([hidden])");
