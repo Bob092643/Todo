@@ -1,9 +1,4 @@
-// Verifieert een paar kleinere, later toegevoegde dingen die niet in een
-// van de andere verify-*.js-bestanden pasten:
-// 1. "Wis alles" bij "Afgerond (N)": alle afgevinkte items in één keer
-//    opruimen, met één gezamenlijke "Ongedaan maken".
-// 2. Het zoek/filter-veldje boven de lijst.
-// (Andere latere toevoegingen komen hier ook bij te staan.)
+// Verifieert "Wis alles" bij afgeronde items (met gezamenlijke "Ongedaan maken") en het zoek/filter-veldje.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -39,9 +34,7 @@ function check(label, cond) {
   const base = `http://localhost:${port}`;
   const browser = await chromium.launch();
 
-  // ============================================================
   // A. "Wis alles" bij afgeronde items
-  // ============================================================
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -91,9 +84,7 @@ function check(label, cond) {
     await ctx.close();
   }
 
-  // ============================================================
   // B. Zoek/filter-veldje boven de lijst
-  // ============================================================
   {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();

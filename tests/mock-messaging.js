@@ -1,9 +1,4 @@
-// TEST-ONLY nepversie van de Firebase Cloud Messaging-functies die app.js
-// gebruikt voor pushmeldingen. Een echte pushmelding kan hier niet
-// getest worden (dat vereist een echt Firebase-project + een echt
-// toestel dat een systeemmelding ontvangt) — deze mock simuleert alleen
-// het "token ophalen en opslaan"-deel, zodat we kunnen testen dat de
-// aan/uit-knop en de opslag in het gezinsdocument goed werken.
+// TEST-ONLY nepversie van FCM: simuleert alleen het token ophalen/opslaan, geen echte pushmelding.
 
 export function getMessaging(_app) {
   return {};
@@ -13,11 +8,7 @@ export async function isSupported() {
   return true;
 }
 
-// Geeft een stabiel, per-browserprofiel uniek token terug (bewaard in
-// localStorage), zodat herhaaldelijk "aanzetten" in dezelfde
-// testbrowser-sessie steeds hetzelfde token oplevert — net als een echt
-// FCM-token op hetzelfde toestel/dezelfde browserinstallatie ook stabiel
-// blijft zolang je 'm niet expliciet intrekt.
+// Stabiel token per browserprofiel (bewaard in localStorage), zoals een echt FCM-token.
 export async function getToken(_messaging, _opties) {
   const KEY = "mock-fcm-token";
   let token = localStorage.getItem(KEY);
@@ -34,8 +25,5 @@ export async function deleteToken(_messaging) {
 }
 
 export function onMessage(_messaging, _callback) {
-  // In deze mock komen er nooit binnenkomende berichten binnen (dat zou
-  // een echte FCM-verbinding vergen) — gewoon een no-op afmeld-functie
-  // teruggeven, zoals de echte SDK ook doet.
-  return () => {};
+  return () => {}; // no-op afmeld-functie, zoals de echte SDK
 }

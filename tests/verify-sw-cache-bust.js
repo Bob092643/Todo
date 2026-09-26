@@ -1,7 +1,5 @@
-// Test: simuleert een "git push" naar GitHub Pages (bestanden op de server
-// veranderen onder dezelfde URL) en controleert of het ophogen van
-// CACHE_NAME in sw.js ervoor zorgt dat een telefoon die de app al had
-// geïnstalleerd/gecached, alsnog de nieuwe versie te zien krijgt.
+// Simuleert een deploy (bestanden veranderen onder dezelfde URL) en verifieert dat het
+// ophogen van CACHE_NAME in sw.js een al-gecachede telefoon de nieuwe versie laat zien.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -38,11 +36,7 @@ function check(label, cond) {
 }
 
 (async () => {
-  // "live" moet bij elke run weer met een schone lei starten (gelijk aan
-  // v1) — anders laat een vorige testrun, die "live" op v2 achterlaat als
-  // "push"-simulatie, deze test bij de volgende keer meteen al mislukken
-  // op stap 1 ("1e bezoek toont VERSIE-1"), terwijl daar niks mis mee is.
-  copyDir(V1, LIVE);
+  copyDir(V1, LIVE); // schone lei: een vorige run kan "live" op v2 hebben achtergelaten
 
   await new Promise((r) => server.listen(0, r));
   const port = server.address().port;
@@ -52,33 +46,15 @@ function check(label, cond) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
 
-  // 1) Eerste bezoek: v1 wordt geladen en door de service worker gecached
-  //    (zoals een telefoon die de app voor het eerst installeert).
   await page.goto(`${base}/index.html`);
   await page.evaluate(() => navigator.serviceWorker.ready);
   check("1e bezoek toont VERSIE-1", (await page.textContent("#marker")) === "VERSIE-1");
 
-  // 2) "git push": de live bestanden op de server worden vervangen door v2
-  //    (nieuwe inhoud + opgehoogde CACHE_NAME in sw.js), precies zoals een
-  //    GitHub Pages-deploy de bestanden op dezelfde URL vervangt.
-  copyDir(V2, LIVE);
+  copyDir(V2, LIVE); // simuleert een deploy: nieuwe inhoud + opgehoogde CACHE_NAME
 
-  // 3) De browser controleert normaal gesproken vanzelf, bij het opnieuw
-  //    openen van de app, of sw.js veranderd is. In deze geautomatiseerde
-  //    test triggeren we die controle expliciet (registration.update()) om
-  //    niet afhankelijk te zijn van de timing van Chromium's eigen
-  //    achtergrondcontrole — het mechanisme zelf (skipWaiting +
-  //    clients.claim, hieronder gecontroleerd) is identiek aan wat er in
-  //    het echt gebeurt.
-  //
-  // Belangrijk: de listener moet AL klaarstaan vóórdat reg.update() wordt
-  // aangeroepen, en dat moet allebei in dezelfde page.evaluate()-aanroep
-  // gebeuren — anders zit er een round-trip tussen "bijwerken starten" en
-  // "gaan luisteren", en kan skipWaiting()+clients.claim() de
-  // "controllerchange" allang hebben afgevuurd vóórdat we uberhaupt
-  // luisterden (een race die niets zegt over of het omschakelen zelf wel
-  // goed werkte — dat wordt hieronder sowieso al gecontroleerd via de
-  // vernieuwde inhoud en de cachenamen).
+  // reg.update() expliciet aanroepen i.p.v. te wachten op Chromium's eigen achtergrondcontrole.
+  // De listener moet al klaarstaan vóór reg.update(), in dezelfde evaluate()-aanroep, anders kan
+  // "controllerchange" al afgevuurd zijn vóór we luisterden.
   const controllerChanged = await page.evaluate(async () => {
     const changed = new Promise((resolve) => {
       navigator.serviceWorker.addEventListener("controllerchange", () => resolve(true), { once: true });
@@ -89,8 +65,6 @@ function check(label, cond) {
     return changed;
   });
 
-  // 4) Nogmaals openen: nu moet de nieuwe (v2) service worker de boel
-  //    bedienen en de vernieuwde inhoud tonen.
   await page.reload();
   await page.waitForTimeout(500);
   check("De actieve service worker is daadwerkelijk gewisseld (controllerchange)", controllerChanged);
