@@ -126,6 +126,15 @@
       </div>
     </div>
 
+    <div class="settings-section">
+      <p class="settings-section-title">📤 Lijst delen als tekst</p>
+      <p class="settings-section-hint">Zet de openstaande items van een lijstje om in platte tekst, om te delen (bijv. via WhatsApp) met iemand die de app niet gebruikt.</p>
+      <div class="settings-section-actions">
+        <select id="tekst-delen-select" class="tekst-delen-select"></select>
+        <button id="tekst-delen-btn" class="btn btn-ghost btn-small" type="button">Genereer en deel</button>
+      </div>
+    </div>
+
     <div class="settings-section" id="push-section" hidden>
       <p class="settings-section-title">🔔 Pushmeldingen</p>
       <p class="settings-section-hint" id="push-hint">Krijg een melding op dit toestel zodra iemand anders iets toevoegt aan een gedeeld lijstje.</p>
@@ -149,6 +158,7 @@
             <li><strong>★ Favoriet</strong> — zet een item op je vaste "Snel toevoegen"-rijtje boven de lijst, ook nadat je 'm hebt afgevinkt en verwijderd. Items die je vaak genoeg toevoegt, verschijnen daar trouwens ook vanzelf bij, zonder dat je ze apart hoeft te markeren.</li>
             <li><strong>🔍 Zoeken</strong> — verschijnt vanaf 7 items in je lijstje (instelbaar bij ⚙️ Instellingen); filtert op alles, ook afgevinkte items.</li>
             <li><strong>Wis alles</strong> — bij "Afgerond" alle afgevinkte items in één keer opruimen, i.p.v. één voor één.</li>
+            <li><strong>Selecteren</strong> — meerdere openstaande items tegelijk aanvinken, om ze in één keer te verwijderen of naar een ander lijstje te verplaatsen.</li>
             <li><strong>☰ Lijstjes</strong> — al je lijstjes (gedeeld en privé); de bovenste (in de volgorde die jij zelf per toestel instelt) staan als tabblad bovenin — hoeveel dat er zijn hangt af van je schermbreedte —, de rest vind je hier.</li>
             <li><strong>Verbergen</strong> — een gedeeld lijstje op dit toestel uit beeld halen. Het lijstje zelf blijft gewoon bestaan (anderen met de code kunnen er nog steeds bij); je vindt 'm terug onderaan ☰ Lijstjes, bij "Verborgen op dit toestel", om 'm weer te laten zien.</li>
             <li><strong>Delen</strong> — stuurt de link waarmee anderen ook bij dit gedeelde lijstje kunnen (kan niet voor een privé lijstje).</li>
@@ -169,6 +179,17 @@
     <div id="snel-toevoegen-rij" class="snel-rij" hidden></div>
 
     <input id="zoek-veld" class="zoek-veld" type="search" placeholder="🔍 Zoeken in lijst..." autocomplete="off" hidden />
+
+    <div class="selectie-rij">
+      <button id="selectie-modus-btn" class="btn btn-ghost btn-small" type="button" hidden>Selecteren</button>
+    </div>
+
+    <div id="bulk-balk" class="bulk-balk" hidden>
+      <span id="bulk-aantal">0 geselecteerd</span>
+      <button id="bulk-verwijder-btn" class="btn btn-ghost btn-small" type="button">🗑️ Verwijderen</button>
+      <select id="bulk-verplaats-select" class="bulk-verplaats-select"></select>
+      <button id="bulk-verplaats-btn" class="btn btn-ghost btn-small" type="button">Verplaatsen</button>
+    </div>
 
     <ul id="list" class="list"></ul>
 

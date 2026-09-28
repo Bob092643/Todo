@@ -207,6 +207,8 @@ function start() {
 
   let items = [];
   let zoekTerm = ""; // zoekveldje, puur schermweergave
+  let selectieModus = false;
+  let geselecteerdeIds = new Set(); // ids van open items, aangevinkt voor een bulkactie
   const ZOEK_DREMPEL_KEY = "boodschappenlijst:zoek-drempel";
   const ZOEK_DREMPEL_DEFAULT = 7;
   let zoekDrempel = ZOEK_DREMPEL_DEFAULT; // pas tonen vanaf een lijstje van deze lengte — instelbaar, per toestel
@@ -829,6 +831,70 @@ function start() {
     );
   }
 
+  // Geselecteerde open items in één keer naar het archief — zelfde 30-dagen-vangnet en
+  // gezamenlijke "Ongedaan maken" als wisAfgevinkte().
+  function bulkVerwijderen() {
+    const ids = [...geselecteerdeIds];
+    if (ids.length === 0) return;
+    const verwijderd = [];
+    for (const id of ids) {
+      const idx = items.findIndex((i) => i.id === id);
+      if (idx === -1) continue;
+      const [item] = items.splice(idx, 1);
+      item.deletedAt = Date.now();
+      archivedItems.push(item);
+      knownIds.delete(id);
+      verwijderd.push(item);
+    }
+    geselecteerdeIds.clear();
+    selectieModus = false;
+    render();
+    renderArchive();
+    scheduleSave();
+    if (verwijderd.length > 0) {
+      showToast(
+        verwijderd.length === 1 ? `"${verwijderd[0].text}" is verwijderd` : `${verwijderd.length} items zijn verwijderd`,
+        () => verwijderd.forEach((item) => restoreItem(item.id))
+      );
+    }
+  }
+
+  // Geselecteerde open items verplaatsen naar een ander lijstje. De bron is altijd de
+  // actieve lijst (scheduleSave slaat die op); het doel kan gedeeld of privé zijn en
+  // wordt rechtstreeks aangepast + apart opgeslagen (zie ook restoreArchivedItem hierboven).
+  function bulkVerplaatsen(doelLijstId) {
+    const ids = [...geselecteerdeIds];
+    if (ids.length === 0 || !doelLijstId || doelLijstId === activeId) return;
+    const doelLijst = findList(doelLijstId);
+    if (!doelLijst) return;
+    const teVerplaatsen = [];
+    for (const id of ids) {
+      const idx = items.findIndex((i) => i.id === id);
+      if (idx === -1) continue;
+      const [item] = items.splice(idx, 1);
+      teVerplaatsen.push(item);
+    }
+    if (teVerplaatsen.length === 0) return;
+    const echt = echteLijst(doelLijstId, doelLijst.prive);
+    if (echt) {
+      echt.items = echt.items || [];
+      echt.items.push(...teVerplaatsen);
+      echt.updatedAt = Date.now();
+    }
+    geselecteerdeIds.clear();
+    selectieModus = false;
+    render();
+    scheduleSave();
+    if (doelLijst.prive) savePrive();
+    else saveHousehold();
+    const doelNaam = doelLijst.naam || "Lijst";
+    showToast(
+      teVerplaatsen.length === 1
+        ? `"${teVerplaatsen[0].text}" is verplaatst naar "${doelNaam}"`
+        : `${teVerplaatsen.length} items zijn verplaatst naar "${doelNaam}"`
+    );
+  }
+
   function restoreItem(id) {
     const idx = archivedItems.findIndex((i) => i.id === id);
     if (idx === -1) return;
@@ -943,6 +1009,95 @@ function start() {
       renderBadgeKleurPicker();
       updateDeletedView();
       if (el.zoekDrempelInput) el.zoekDrempelInput.value = zoekDrempel;
+      vulTekstDelenSelect();
+    });
+  }
+
+  // Vult de lijst-kiezer voor "Lijst delen als tekst" — elke keer opnieuw
+  // omdat lijstjes kunnen zijn toegevoegd/verwijderd sinds de vorige keer.
+  function vulTekstDelenSelect() {
+    if (!el.tekstDelenSelect) return;
+    const huidige = el.tekstDelenSelect.value;
+    el.tekstDelenSelect.innerHTML = "";
+    getAllLists().forEach((l) => {
+      const optie = document.createElement("option");
+      optie.value = l.id;
+      optie.textContent = (l.prive ? "🔒 " : "") + (l.naam || "Lijst");
+      el.tekstDelenSelect.appendChild(optie);
+    });
+    if (huidige && getAllLists().some((l) => l.id === huidige)) el.tekstDelenSelect.value = huidige;
+    else if (activeId) el.tekstDelenSelect.value = activeId;
+  }
+
+  // Vult de doellijst-kiezer van de bulkbalk — alle lijstjes behalve de actieve.
+  function vulBulkVerplaatsSelect() {
+    if (!el.bulkVerplaatsSelect) return;
+    const huidige = el.bulkVerplaatsSelect.value;
+    el.bulkVerplaatsSelect.innerHTML = "";
+    const opties = getAllLists().filter((l) => l.id !== activeId);
+    if (opties.length === 0) {
+      const optie = document.createElement("option");
+      optie.textContent = "Geen ander lijstje";
+      optie.disabled = true;
+      el.bulkVerplaatsSelect.appendChild(optie);
+      return;
+    }
+    opties.forEach((l) => {
+      const optie = document.createElement("option");
+      optie.value = l.id;
+      optie.textContent = (l.prive ? "🔒 " : "") + (l.naam || "Lijst");
+      el.bulkVerplaatsSelect.appendChild(optie);
+    });
+    if (huidige && opties.some((l) => l.id === huidige)) el.bulkVerplaatsSelect.value = huidige;
+  }
+
+  function genereerLijstAlsTekst(lijst) {
+    const open = (lijst.items || []).filter((i) => !i.done);
+    const kop = lijst.naam || "Lijst";
+    if (open.length === 0) return `${kop}\n(geen openstaande items)`;
+    return `${kop}\n${open.map((i) => `- ${i.text}`).join("\n")}`;
+  }
+
+  if (el.tekstDelenBtn) {
+    el.tekstDelenBtn.addEventListener("click", async () => {
+      const lijst = findList(el.tekstDelenSelect ? el.tekstDelenSelect.value : activeId);
+      if (!lijst) return;
+      const tekst = genereerLijstAlsTekst(lijst);
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: lijst.naam || "Lijst", text: tekst });
+          return;
+        } catch (e) {
+          if (e && e.name === "AbortError") return; // gebruiker heeft het deelvenster zelf geannuleerd
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(tekst);
+        const origineel = el.tekstDelenBtn.textContent;
+        el.tekstDelenBtn.textContent = "Gekopieerd!";
+        setTimeout(() => (el.tekstDelenBtn.textContent = origineel), 1500);
+      } catch (e) {
+        prompt("Kopieer en deel deze tekst:", tekst);
+      }
+    });
+  }
+
+  if (el.selectieModusBtn) {
+    el.selectieModusBtn.addEventListener("click", () => {
+      selectieModus = !selectieModus;
+      if (!selectieModus) geselecteerdeIds.clear();
+      render();
+    });
+  }
+
+  if (el.bulkVerwijderBtn) {
+    el.bulkVerwijderBtn.addEventListener("click", bulkVerwijderen);
+  }
+
+  if (el.bulkVerplaatsBtn) {
+    el.bulkVerplaatsBtn.addEventListener("click", () => {
+      const doelId = el.bulkVerplaatsSelect ? el.bulkVerplaatsSelect.value : null;
+      if (doelId) bulkVerplaatsen(doelId);
     });
   }
 
@@ -1447,6 +1602,20 @@ function start() {
     const row = document.createElement("div");
     row.className = "item-row";
 
+    if (selectieModus && !item.done) {
+      const selCheck = document.createElement("input");
+      selCheck.type = "checkbox";
+      selCheck.className = "select-item-checkbox";
+      selCheck.checked = geselecteerdeIds.has(item.id);
+      selCheck.setAttribute("aria-label", `${item.text} selecteren voor bulkactie`);
+      selCheck.addEventListener("change", () => {
+        if (selCheck.checked) geselecteerdeIds.add(item.id);
+        else geselecteerdeIds.delete(item.id);
+        render();
+      });
+      row.append(selCheck);
+    }
+
     const check = document.createElement("label");
     check.className = "check";
 
@@ -1618,6 +1787,22 @@ function start() {
       menu.append(pinBtn);
     }
 
+    const bewerkBtn = document.createElement("button");
+    bewerkBtn.type = "button";
+    bewerkBtn.className = "bewerk-btn";
+    bewerkBtn.textContent = "✏️ Bewerken";
+    bewerkBtn.setAttribute("aria-label", `${item.text} bewerken`);
+    bewerkBtn.addEventListener("click", () => {
+      const nieuw = prompt("Tekst aanpassen:", item.text);
+      openItemMenuId = null;
+      if (nieuw === null) { render(); return; } // geannuleerd: niks aanpassen, menu wel sluiten
+      const schoon = nieuw.trim();
+      if (schoon) item.text = schoon;
+      render();
+      scheduleSave();
+    });
+    menu.append(bewerkBtn);
+
     const del = document.createElement("button");
     del.type = "button";
     del.className = "delete-btn";
@@ -1697,6 +1882,23 @@ function start() {
     const done = bronItems.filter((i) => i.done);
     const pinnedActive = active.filter((i) => i.pinned);
     const normalActive = active.filter((i) => !i.pinned);
+
+    if (el.selectieModusBtn) {
+      el.selectieModusBtn.hidden = active.length === 0 && !selectieModus;
+      el.selectieModusBtn.textContent = selectieModus ? "Klaar" : "Selecteren";
+    }
+    if (el.bulkBalk) {
+      el.bulkBalk.hidden = !selectieModus;
+      if (selectieModus) {
+        if (el.bulkAantal) el.bulkAantal.textContent = `${geselecteerdeIds.size} geselecteerd`;
+        vulBulkVerplaatsSelect();
+        const kan = geselecteerdeIds.size > 0;
+        if (el.bulkVerwijderBtn) el.bulkVerwijderBtn.disabled = !kan;
+        if (el.bulkVerplaatsBtn) {
+          el.bulkVerplaatsBtn.disabled = !kan || getAllLists().filter((l) => l.id !== activeId).length === 0;
+        }
+      }
+    }
 
     if (pinnedActive.length > 0) {
       const pinHeader = document.createElement("li");

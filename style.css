@@ -1304,3 +1304,55 @@ code {
   box-shadow: 0 0 0 3px var(--blue-50);
 }
 
+.selectie-rij {
+  display: flex;
+  justify-content: flex-end;
+  margin: -4px 0 8px;
+}
+
+.bulk-balk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+
+#bulk-aantal {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-right: auto;
+}
+
+.bulk-verplaats-select {
+  max-width: 45%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.select-item-checkbox {
+  margin-right: 4px;
+  align-self: center;
+  flex-shrink: 0;
+}
+
+.tekst-delen-select {
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
