@@ -26,6 +26,8 @@ export const el = {
   nameBtn: document.getElementById("name-btn"),
   badgeKleurHint: document.getElementById("badge-kleur-hint"),
   badgeKleurOpties: document.getElementById("badge-kleur-opties"),
+  zoekDrempelInput: document.getElementById("zoek-drempel-input"),
+  zoekDrempelResetBtn: document.getElementById("zoek-drempel-reset-btn"),
   pushSection: document.getElementById("push-section"),
   pushBtn: document.getElementById("push-btn"),
   listTabs: document.getElementById("list-tabs"),
