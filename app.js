@@ -207,6 +207,7 @@ function start() {
 
   let items = [];
   let zoekTerm = ""; // zoekveldje, puur schermweergave
+  const ZOEK_MIN_ITEMS = 7; // pas tonen vanaf een lijstje van deze lengte
   // Snel toevoegen: favorieten zijn zelf gekozen, itemFrequentie telt hoe
   // vaak een (genormaliseerde) itemnaam is toegevoegd zodat vaak-gebruikte
   // dingen vanzelf als suggestie verschijnen. Reizen mee met het lijstje.
@@ -1652,7 +1653,7 @@ function start() {
     el.list.innerHTML = "";
     renderSnelToevoegen();
 
-    if (el.zoekVeld) el.zoekVeld.hidden = items.length === 0;
+    if (el.zoekVeld) el.zoekVeld.hidden = items.length < ZOEK_MIN_ITEMS;
     const zoekTermSchoon = zoekTerm.trim().toLowerCase();
     const zoekActief = zoekTermSchoon.length > 0;
     const bronItems = zoekActief

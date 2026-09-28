@@ -96,12 +96,18 @@ function check(label, cond) {
 
     check("B1. Zoekveldje verborgen zolang de lijst leeg is", await page.isHidden("#zoek-veld"));
 
-    for (const naam of ["Melk", "Bruinbrood", "Kaas", "Appelmoes"]) {
+    // Zoekveld toont pas vanaf een lijstje van 7 items (ZOEK_MIN_ITEMS).
+    for (const naam of ["Melk", "Bruinbrood", "Kaas", "Appelmoes", "Eieren", "Boter"]) {
       await page.fill("#new-item", naam);
       await page.click("button[type=submit]");
       await page.waitForTimeout(80);
     }
-    check("B2. Zoekveldje verschijnt zodra er items zijn", await page.isVisible("#zoek-veld"));
+    check("B2. Zoekveldje nog verborgen onder de drempel (6 items)", await page.isHidden("#zoek-veld"));
+
+    await page.fill("#new-item", "Yoghurt");
+    await page.click("button[type=submit]");
+    await page.waitForTimeout(80);
+    check("B2b. Zoekveldje verschijnt zodra de drempel (7 items) is bereikt", await page.isVisible("#zoek-veld"));
 
     await page.fill("#zoek-veld", "appel");
     await page.waitForTimeout(150);
@@ -117,7 +123,7 @@ function check(label, cond) {
     await page.fill("#zoek-veld", "");
     await page.waitForTimeout(150);
     const lijstLeeggemaakt = await page.textContent("#list");
-    check("B6. Zoekveld leegmaken toont alle items weer", ["Melk", "Bruinbrood", "Kaas", "Appelmoes"].every((n) => lijstLeeggemaakt.includes(n)));
+    check("B6. Zoekveld leegmaken toont alle items weer", ["Melk", "Bruinbrood", "Kaas", "Appelmoes", "Eieren", "Boter", "Yoghurt"].every((n) => lijstLeeggemaakt.includes(n)));
 
     check("Geen JS-fouten opgetreden tijdens deze test", errors.length === 0);
     if (errors.length) console.log(errors);
