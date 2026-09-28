@@ -1160,6 +1160,19 @@ function start() {
     }
   }
 
+  // Kruisje op een "snel toevoegen"-chip: bij een favoriet gewoon uitzetten
+  // (net als via het ⋯-menu), bij een frequentie-suggestie de telling wissen
+  // zodat 'm niet meer voorstelt — opnieuw 2x invullen laat 'm gewoon terugkomen.
+  function verwijderSnelSuggestie(tekst, isFav) {
+    if (isFav) {
+      toggleFavoriet(tekst);
+    } else {
+      delete itemFrequentie[normaliseerTekst(tekst)];
+    }
+    render();
+    scheduleSave();
+  }
+
   // Eén centrale plek om een nieuw item toe te voegen — gebruikt door zowel
   // het invulveld bovenaan als de "Snel toevoegen"-chips hieronder, zodat
   // favorieten en telling er altijd hetzelfde bij horen.
@@ -1207,13 +1220,27 @@ function start() {
     el.snelToevoegenRij.innerHTML = "";
     el.snelToevoegenRij.hidden = suggesties.length === 0;
     suggesties.forEach((s) => {
-      const chip = document.createElement("button");
-      chip.type = "button";
+      const chip = document.createElement("span");
       chip.className = "snel-chip" + (s.favoriet ? " favoriet" : "");
-      if (s.favoriet) chip.append(document.createTextNode("★ "));
-      chip.append(document.createTextNode(s.tekst));
-      chip.title = `"${s.tekst}" toevoegen`;
-      chip.addEventListener("click", () => voegItemToe(s.tekst));
+
+      const tekstBtn = document.createElement("button");
+      tekstBtn.type = "button";
+      tekstBtn.className = "snel-chip-tekst";
+      if (s.favoriet) tekstBtn.append(document.createTextNode("★ "));
+      tekstBtn.append(document.createTextNode(s.tekst));
+      tekstBtn.title = `"${s.tekst}" toevoegen`;
+      tekstBtn.addEventListener("click", () => voegItemToe(s.tekst));
+      chip.appendChild(tekstBtn);
+
+      const xBtn = document.createElement("button");
+      xBtn.type = "button";
+      xBtn.className = "snel-chip-x";
+      xBtn.textContent = "×";
+      xBtn.title = s.favoriet ? "Favoriet verwijderen" : "Voorstel niet meer tonen";
+      xBtn.setAttribute("aria-label", `"${s.tekst}" ${s.favoriet ? "als favoriet afhalen" : "niet meer voorstellen"}`);
+      xBtn.addEventListener("click", () => verwijderSnelSuggestie(s.tekst, s.favoriet));
+      chip.appendChild(xBtn);
+
       el.snelToevoegenRij.appendChild(chip);
     });
   }

@@ -1243,14 +1243,12 @@ code {
 .snel-chip {
   display: inline-flex;
   align-items: center;
-  padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--card);
   font-size: 0.82rem;
   font-weight: 500;
   color: var(--text);
-  cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
@@ -1262,5 +1260,30 @@ code {
 .snel-chip.favoriet {
   color: #a67312;
   border-color: rgba(229, 169, 42, 0.5);
+}
+
+.snel-chip-tekst {
+  padding: 6px 4px 6px 12px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.snel-chip-x {
+  padding: 6px 10px 6px 4px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.snel-chip-x:hover {
+  opacity: 1;
+  color: var(--danger);
 }
 
