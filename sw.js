@@ -1,4 +1,4 @@
-const CACHE_NAME = "boodschappenlijst-v30";
+const CACHE_NAME = "boodschappenlijst-v31";
 // Elke module die app.js importeert moet hier ook staan, anders start de app offline niet op.
 const APP_SHELL = [
   "./",
