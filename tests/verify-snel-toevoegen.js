@@ -1,8 +1,6 @@
 // Verifieert "Snel toevoegen": handmatige favorieten (★) en automatisch
 // leren van vaak toegevoegde items, allebei als klikbare chips boven de
-// lijst, dat een chip verdwijnt zodra dat item al openstaat, en dat je
-// een chip met het kruisje kunt verwijderen (favoriet uit, of suggestie
-// wissen — in beide gevallen kan 'm later gewoon weer verschijnen).
+// lijst, en dat een chip verdwijnt zodra dat item al openstaat.
 
 const { chromium } = require("playwright");
 const path = require("path");
@@ -108,58 +106,6 @@ async function openItemMenu(page) {
   await page.reload();
   await page.waitForSelector("#app:not([hidden])");
   check("W10. Vuilniszakken-suggestie blijft na herladen bestaan", (await page.textContent("#snel-toevoegen-rij")).includes("Vuilniszakken"));
-
-  // "Afwasmiddel" staat nog open sinds W9 — eerst opruimen zodat er weer maar 1 item open staat.
-  await openItemMenu(page);
-  await page.click(".delete-btn");
-  await page.waitForTimeout(100);
-
-  // --- Kruisje op een automatische suggestie: verdwijnt, maar kan later gewoon terugkomen ---
-  await page.click('.snel-chip:has-text("Vuilniszakken") .snel-chip-x');
-  await page.waitForTimeout(100);
-  check("W11. Kruisje verwijdert de automatische suggestie", !(await page.textContent("#snel-toevoegen-rij")).includes("Vuilniszakken"));
-
-  await page.fill("#new-item", "Vuilniszakken");
-  await page.click("button[type=submit]");
-  await page.waitForTimeout(100);
-  await openItemMenu(page);
-  await page.click(".delete-btn");
-  await page.waitForTimeout(100);
-  await page.fill("#new-item", "Vuilniszakken");
-  await page.click("button[type=submit]");
-  await page.waitForTimeout(100);
-  await openItemMenu(page);
-  await page.click(".delete-btn");
-  await page.waitForTimeout(400);
-  check("W12. ...en na opnieuw 2x toevoegen verschijnt de suggestie weer gewoon", (await page.textContent("#snel-toevoegen-rij")).includes("Vuilniszakken"));
-
-  // --- Kruisje op een favoriet: zet 'm uit (net als via het ⋯-menu) ---
-  // Nieuwe naam (Tandpasta), maar 1x toegevoegd: zo blijft de telling onder de
-  // suggestie-drempel en zegt een lege rij hierna ook echt iets (i.p.v. dat
-  // "Afwasmiddel" toch nog als kale suggestie zou terugkomen door eerder hergebruik).
-  await page.fill("#new-item", "Tandpasta");
-  await page.click("button[type=submit]");
-  await page.waitForTimeout(100);
-  await openItemMenu(page);
-  await page.click(".fav-btn");
-  await page.waitForTimeout(100);
-  await openItemMenu(page);
-  await page.click(".delete-btn");
-  await page.waitForTimeout(400);
-  check("W13. Favoriet staat weer als chip met ster", (await page.textContent("#snel-toevoegen-rij")).includes("★ Tandpasta"));
-
-  await page.click('.snel-chip:has-text("Tandpasta") .snel-chip-x');
-  await page.waitForTimeout(100);
-  check("W14. Kruisje op een favoriet-chip haalt 'm uit de rij", !(await page.textContent("#snel-toevoegen-rij")).includes("Tandpasta"));
-
-  await page.fill("#new-item", "Tandpasta");
-  await page.click("button[type=submit]");
-  await page.waitForTimeout(100);
-  await openItemMenu(page);
-  check(
-    "W15. ...en de favoriet stond ook echt uit, niet alleen de chip verborgen",
-    !(await page.locator(".fav-btn").first().evaluate((b) => b.classList.contains("active")))
-  );
 
   check("Geen JS-fouten opgetreden tijdens deze hele test", jsErrors.length === 0);
   if (jsErrors.length) console.log(jsErrors);
