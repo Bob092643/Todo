@@ -207,7 +207,13 @@ function start() {
 
   let items = [];
   let zoekTerm = ""; // zoekveldje, puur schermweergave
-  const ZOEK_MIN_ITEMS = 7; // pas tonen vanaf een lijstje van deze lengte
+  const ZOEK_DREMPEL_KEY = "boodschappenlijst:zoek-drempel";
+  const ZOEK_DREMPEL_DEFAULT = 7;
+  let zoekDrempel = ZOEK_DREMPEL_DEFAULT; // pas tonen vanaf een lijstje van deze lengte — instelbaar, per toestel
+  try {
+    const opgeslagenDrempel = parseInt(localStorage.getItem(ZOEK_DREMPEL_KEY), 10);
+    if (Number.isFinite(opgeslagenDrempel) && opgeslagenDrempel >= 1) zoekDrempel = opgeslagenDrempel;
+  } catch (e) { /* localStorage niet beschikbaar, standaard blijft gelden */ }
   // Snel toevoegen: favorieten zijn zelf gekozen, itemFrequentie telt hoe
   // vaak een (genormaliseerde) itemnaam is toegevoegd zodat vaak-gebruikte
   // dingen vanzelf als suggestie verschijnen. Reizen mee met het lijstje.
@@ -936,6 +942,26 @@ function start() {
       updateNameBtn();
       renderBadgeKleurPicker();
       updateDeletedView();
+      if (el.zoekDrempelInput) el.zoekDrempelInput.value = zoekDrempel;
+    });
+  }
+
+  if (el.zoekDrempelInput) {
+    el.zoekDrempelInput.addEventListener("change", () => {
+      const nieuw = parseInt(el.zoekDrempelInput.value, 10);
+      zoekDrempel = Number.isFinite(nieuw) && nieuw >= 1 ? nieuw : ZOEK_DREMPEL_DEFAULT;
+      el.zoekDrempelInput.value = zoekDrempel;
+      try { localStorage.setItem(ZOEK_DREMPEL_KEY, String(zoekDrempel)); } catch (e) { /* niet erg, geldt dan alleen voor deze sessie */ }
+      render();
+    });
+  }
+
+  if (el.zoekDrempelResetBtn) {
+    el.zoekDrempelResetBtn.addEventListener("click", () => {
+      zoekDrempel = ZOEK_DREMPEL_DEFAULT;
+      if (el.zoekDrempelInput) el.zoekDrempelInput.value = zoekDrempel;
+      try { localStorage.removeItem(ZOEK_DREMPEL_KEY); } catch (e) { /* niet erg */ }
+      render();
     });
   }
 
@@ -1653,7 +1679,7 @@ function start() {
     el.list.innerHTML = "";
     renderSnelToevoegen();
 
-    if (el.zoekVeld) el.zoekVeld.hidden = items.length < ZOEK_MIN_ITEMS;
+    if (el.zoekVeld) el.zoekVeld.hidden = items.length < zoekDrempel;
     const zoekTermSchoon = zoekTerm.trim().toLowerCase();
     const zoekActief = zoekTermSchoon.length > 0;
     const bronItems = zoekActief
