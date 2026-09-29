@@ -1473,6 +1473,24 @@ code {
   font-size: 0.9rem;
 }
 
+.details-datum-rij {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.details-datum-rij input {
+  flex: 1;
+  min-width: 0;
+}
+
+.datum-wis-btn {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  font-size: 0.85rem;
+}
+
 .details-foto-preview {
   margin-top: 10px;
 }
