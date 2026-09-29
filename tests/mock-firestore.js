@@ -52,6 +52,13 @@ export async function setDoc(ref, data) {
   ch.close();
 }
 
+export async function deleteDoc(ref) {
+  localStorage.removeItem("mockdoc:" + ref.path);
+  const ch = new BroadcastChannel("mock-firestore-" + ref.path);
+  ch.postMessage({ type: "update" });
+  ch.close();
+}
+
 // Simuleert een Firestore-transactie via compare-and-swap: schrijft alleen weg als niemand
 // anders tussen lezen en schrijven iets veranderde, anders opnieuw proberen met de nieuwste stand.
 export async function runTransaction(_db, updateFunction, { maxAttempts = 8 } = {}) {
