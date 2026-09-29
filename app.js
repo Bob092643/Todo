@@ -1107,45 +1107,61 @@ function start() {
     el.listsAddBtn.addEventListener("click", () => addList(false));
   }
 
-  if (el.deleteListBtn) {
-    el.deleteListBtn.addEventListener("click", async () => {
-      const bevestigd = await vraagBevestiging({
-        titel: `"${listName}" verwijderen?`,
-        hint: `Hiermee verwijder je dit lijstje ${activePrive ? "van dit toestel" : "voor iedereen die de code heeft"}. Je hebt daarna nog ${ARCHIVE_DAYS} dagen om 'm terug te zetten — daarna is het lijstje echt weg.`,
-        bevestigTekst: "Verwijderen",
-        gevaarlijk: true,
-      });
-      if (!bevestigd) return;
+  // Werkt op een willekeurig lijstje (niet per se het actieve) zodat dit ook
+  // direct vanuit het ☰ Lijstjes-paneel aangeroepen kan worden, zonder eerst
+  // te hoeven wisselen naar het te verwijderen lijstje.
+  async function verwijderLijst(id, prive) {
+    // Bij het actieve lijstje staat een eventuele nog niet opgeslagen wijziging
+    // (binnen de 400ms-debounce) alleen in de werkvariabelen, nog niet in
+    // householdLijsten/priveLijsten zelf — eerst flushen zodat findList() hier
+    // de meest recente stand teruggeeft (zelfde reden als in switchToList()).
+    if (id === activeId) await flushPendingSave();
+    const l = findList(id);
+    if (!l) return;
+    const bevestigd = await vraagBevestiging({
+      titel: `"${l.naam || "Lijst"}" verwijderen?`,
+      hint: `Hiermee verwijder je dit lijstje ${prive ? "van dit toestel" : "voor iedereen die de code heeft"}. Je hebt daarna nog ${ARCHIVE_DAYS} dagen om 'm terug te zetten — daarna is het lijstje echt weg.`,
+      bevestigTekst: "Verwijderen",
+      gevaarlijk: true,
+    });
+    if (!bevestigd) return;
 
-      const deletedEntry = { id: activeId, naam: listName, items, archivedItems, updatedAt: Date.now(), deletedAt: Date.now() };
-      removeFromVolgorde(activeId);
-      delete laatstGezien[activeId];
-      saveGezien();
+    const deletedEntry = { id, naam: l.naam, items: l.items || [], archivedItems: l.archivedItems || [], updatedAt: Date.now(), deletedAt: Date.now() };
+    removeFromVolgorde(id);
+    delete laatstGezien[id];
+    saveGezien();
 
-      if (activePrive) {
-        priveLijsten = priveLijsten.filter((l) => l.id !== activeId);
-        priveArchief.push(deletedEntry);
-        savePrive();
-        savePriveArchief();
-        renderTabsAndPanel();
-      } else {
-        householdLijsten = householdLijsten.filter((l) => l.id !== activeId);
-        householdArchivedLijsten.push(deletedEntry);
-        await saveHousehold(); // meteen opslaan, ook al schakelen we hierna naar een ander lijstje
-      }
+    if (prive) {
+      priveLijsten = priveLijsten.filter((x) => x.id !== id);
+      priveArchief.push(deletedEntry);
+      savePrive();
+      savePriveArchief();
+    } else {
+      householdLijsten = householdLijsten.filter((x) => x.id !== id);
+      householdArchivedLijsten.push(deletedEntry);
+      await saveHousehold(); // meteen opslaan, ook al schakelen we hierna misschien naar een ander lijstje
+    }
 
-      archiveOpen = false;
-      const rest = getAllLists().filter((x) => x.id !== activeId);
+    archiveOpen = false;
+    if (id === activeId) {
+      const rest = getAllLists().filter((x) => x.id !== id);
       if (rest.length > 0) {
         await switchToList(rest[0].id);
-      } else if (activePrive) {
+      } else if (prive) {
         // Privé-verwijdering raakt de server niet (geen onSnapshot-echo die
         // vanzelf een vervangend lijstje maakt), dus hier expliciet doen.
         addList(true);
       }
       // Laatste gedeelde lijstje: resolveActiveList() maakt via saveHousehold's
       // onSnapshot-echo vanzelf een nieuwe aan, hier niets extra's nodig.
-    });
+    } else {
+      // Niet het actieve lijstje: gewoon lokaal bijwerken, geen wissel nodig.
+      renderTabsAndPanel();
+    }
+  }
+
+  if (el.deleteListBtn) {
+    el.deleteListBtn.addEventListener("click", () => verwijderLijst(activeId, activePrive));
   }
 
   async function restoreList(id, prive) {
@@ -2193,6 +2209,17 @@ function start() {
         hideBtn.addEventListener("click", () => hideList(id));
         li.append(hideBtn);
       }
+
+      // Rechtstreeks verwijderen vanuit dit paneel, zonder eerst naar dit
+      // lijstje te hoeven wisselen en dan via archief de danger-zone te openen.
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "btn btn-ghost btn-small lists-panel-delete";
+      deleteBtn.textContent = "Verwijderen";
+      deleteBtn.title = "Dit lijstje verwijderen (30 dagen terug te zetten via het archief)";
+      deleteBtn.setAttribute("aria-label", `${l.naam || "Lijst"} verwijderen`);
+      deleteBtn.addEventListener("click", () => verwijderLijst(id, l.prive));
+      li.append(deleteBtn);
 
       el.listsPanelList.appendChild(li);
 
