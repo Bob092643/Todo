@@ -2424,6 +2424,15 @@ function start() {
     });
   }
 
+  // Expliciete "wis"-knop naast elk datumveld: sommige (vooral Android-)toestellen
+  // hebben geen duidelijke manier om een ingevuld type=date-veld leeg te vegen.
+  document.querySelectorAll(".datum-wis-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const input = document.getElementById(btn.dataset.target);
+      if (input) input.value = "";
+    });
+  });
+
   // Snelkeuze garantie-einddatum: 1/2/3/5 jaar vanaf de aankoopdatum (of vandaag als die leeg is).
   document.querySelectorAll(".garantie-snelkeuze-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
