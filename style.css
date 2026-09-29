@@ -316,6 +316,11 @@ h1, .brand {
   flex-shrink: 0;
 }
 
+.lists-panel-delete {
+  flex-shrink: 0;
+  color: var(--danger);
+}
+
 /* Informatief label, geen knop: leeg (onzichtbaar) als dit lijstje niet als tabblad staat. */
 .lists-panel-tab-badge {
   flex-shrink: 0;
