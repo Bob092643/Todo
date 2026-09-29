@@ -1227,12 +1227,6 @@ code {
   * { animation: none !important; transition: none !important; }
 }
 
-#push-btn.active {
-  background: var(--blue-50);
-  color: var(--blue-600);
-  border-color: var(--blue-500);
-}
-
 .snel-rij {
   display: flex;
   flex-wrap: wrap;
@@ -1313,5 +1307,199 @@ code {
   background: var(--card);
   color: var(--text);
   font-size: 0.9rem;
+}
+
+/* --- Vriezer: datum/aantal op het item --- */
+
+.item-vriezer-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.aantal-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px;
+}
+
+.aantal-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: none;
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.aantal-btn:hover {
+  background: var(--blue-50);
+  color: var(--blue-600);
+}
+
+.aantal-getal {
+  min-width: 28px;
+  text-align: center;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.vriezer-oud-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(229, 169, 42, 0.12);
+  color: #a67312;
+}
+
+@media (prefers-color-scheme: dark) {
+  .vriezer-oud-badge {
+    background: rgba(229, 169, 42, 0.16);
+    color: var(--warning);
+  }
+}
+
+/* --- Garantie: markering + fotoseintje op het item --- */
+
+.item-garantie-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.78rem;
+}
+
+.garantie-badge {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.garantie-verloopt {
+  background: rgba(229, 169, 42, 0.12);
+  color: #a67312;
+}
+
+.garantie-verlopen {
+  background: var(--border);
+  color: var(--muted);
+}
+
+@media (prefers-color-scheme: dark) {
+  .garantie-verloopt {
+    background: rgba(229, 169, 42, 0.16);
+    color: var(--warning);
+  }
+}
+
+.garantie-foto-seintje {
+  font-size: 0.85rem;
+}
+
+/* --- Per-lijst instellingen (⚙ in ☰ Lijstjes) --- */
+
+.lists-panel-gear {
+  flex-shrink: 0;
+}
+
+.lists-panel-gear.active {
+  background: var(--blue-50);
+  color: var(--blue-600);
+}
+
+.list li.lists-panel-instellingen {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--bg);
+}
+
+.lijst-instelling-veld {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.lijst-drempel-input {
+  width: 56px;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+/* --- "Details"-paneel per item --- */
+
+.details-form-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.details-form-veld {
+  flex: 1;
+  min-width: 130px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.details-form-veld input {
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.details-foto-preview {
+  margin-top: 10px;
+}
+
+.details-foto-img {
+  max-width: 160px;
+  max-height: 160px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+  display: block;
+}
+
+.foto-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
+}
+
+.foto-fullscreen-overlay img {
+  max-width: 92vw;
+  max-height: 92vh;
+  border-radius: 8px;
 }
 
