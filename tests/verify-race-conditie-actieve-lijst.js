@@ -36,16 +36,25 @@ function check(label, cond) {
   if (cond) pass++; else fail++;
 }
 
-async function withDialogQueue(page, answers, fn) {
-  const queue = [...answers];
-  const handler = async (dialog) => {
-    const answer = queue.shift();
-    if (answer === false || answer === undefined) await dialog.dismiss();
-    else if (answer === true) await dialog.accept();
-    else await dialog.accept(answer);
-  };
-  page.on("dialog", handler);
-  try { await fn(); } finally { page.off("dialog", handler); }
+// Modal-helpers: vervangen withDialogQueue nu confirm()/prompt() weg zijn en
+// zijn vervangen door de eigen modals uit dialoog.js.
+async function modalWacht(page) {
+  await page.waitForSelector(".modal-overlay.zichtbaar");
+}
+async function modalBevestig(page) {
+  await modalWacht(page);
+  await page.click(".modal-knoppen .btn-primary, .modal-knoppen .btn-danger");
+}
+async function modalKiesOptie(page, tekst) {
+  await modalWacht(page);
+  await page.click(`.modal-keuze-btn:has-text("${tekst}")`);
+}
+// Samengestelde helper voor het "nieuw lijstje"-scherm (naam + gedeeld/privé in één modal).
+async function modalNieuwLijstje(page, naam, { gedeeld = true } = {}) {
+  await modalWacht(page);
+  await page.fill(".modal-input", naam);
+  if (!gedeeld) await page.click('.modal-keuze-btn:has-text("Privé")');
+  await page.click('.modal-knoppen button:has-text("Aanmaken")');
 }
 
 async function openDangerZone(page) {
@@ -84,16 +93,15 @@ async function openDangerZone(page) {
     // Derde lijstje aanmaken + verwijderen zodat er iets in het archief staat; B schakelt daarna terug naar A's lijstje.
     await pageB.click("#lists-btn");
     await pageB.waitForSelector("#lists-panel:not([hidden])");
-    await withDialogQueue(pageB, [true, "Derde lijstje", true], async () => {
-      await pageB.click("#lists-add-btn");
-      await pageB.waitForTimeout(400);
-    });
+    await pageB.click("#lists-add-btn");
+    await modalKiesOptie(pageB, "Nieuw lijstje aanmaken");
+    await modalNieuwLijstje(pageB, "Derde lijstje", { gedeeld: true });
+    await pageB.waitForTimeout(400);
     await pageB.click("#archive-btn");
     await openDangerZone(pageB);
-    await withDialogQueue(pageB, [true], async () => {
-      await pageB.click("#delete-list-btn");
-      await pageB.waitForTimeout(400);
-    });
+    await pageB.click("#delete-list-btn");
+    await modalBevestig(pageB);
+    await pageB.waitForTimeout(400);
     await pageB.waitForTimeout(300);
 
     // Kritiek moment: A vinkt af (start 400ms-debounce), dan verwijdert B (ongerelateerd, direct) vóór die debounce afloopt.

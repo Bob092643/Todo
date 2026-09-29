@@ -30,16 +30,30 @@ function check(label, cond) {
   if (cond) pass++; else fail++;
 }
 
-async function withDialogQueue(page, answers, fn) {
-  const queue = [...answers];
-  const handler = async (dialog) => {
-    const answer = queue.shift();
-    if (answer === false || answer === undefined) await dialog.dismiss();
-    else if (answer === true) await dialog.accept();
-    else await dialog.accept(answer);
-  };
-  page.on("dialog", handler);
-  try { await fn(); } finally { page.off("dialog", handler); }
+// Modal-helpers: vervangen withDialogQueue nu confirm()/prompt() weg zijn en
+// zijn vervangen door de eigen modals uit dialoog.js.
+async function modalWacht(page) {
+  await page.waitForSelector(".modal-overlay.zichtbaar");
+}
+async function modalBevestig(page) {
+  await modalWacht(page);
+  await page.click(".modal-knoppen .btn-primary, .modal-knoppen .btn-danger");
+}
+async function modalKiesOptie(page, tekst) {
+  await modalWacht(page);
+  await page.click(`.modal-keuze-btn:has-text("${tekst}")`);
+}
+// Samengestelde helper voor het "nieuw lijstje"-scherm (naam + gedeeld/privé in één modal).
+async function modalNieuwLijstje(page, naam, { gedeeld = true } = {}) {
+  await modalWacht(page);
+  await page.fill(".modal-input", naam);
+  if (!gedeeld) await page.click('.modal-keuze-btn:has-text("Privé")');
+  await page.click('.modal-knoppen button:has-text("Aanmaken")');
+}
+async function nieuwLijstjeViaKnop(page, naam, opts) {
+  await page.click("#lists-add-btn");
+  await modalKiesOptie(page, "Nieuw lijstje aanmaken");
+  await modalNieuwLijstje(page, naam, opts);
 }
 
 async function openDangerZone(page) {
@@ -109,10 +123,9 @@ async function openDangerZone(page) {
 
     await pageA.click("#archive-btn");
     await openDangerZone(pageA);
-    await withDialogQueue(pageA, [true, "Vervangend lijstje op A", true], async () => {
-      await pageA.click("#delete-list-btn");
-      await pageA.waitForTimeout(300);
-    });
+    await pageA.click("#delete-list-btn");
+    await modalBevestig(pageA);
+    await pageA.waitForTimeout(300);
     await pageA.click("#lists-btn");
     await pageA.waitForSelector("#lists-panel:not([hidden])");
     await pageA.click('#lists-panel-archived button:has-text("Verwijder definitief")');
@@ -181,10 +194,8 @@ async function openDangerZone(page) {
 
     await page.click("#lists-btn");
     await page.waitForSelector("#lists-panel:not([hidden])");
-    await withDialogQueue(page, [true, "Enige privé lijstje", false], async () => {
-      await page.click("#lists-add-btn");
-      await page.waitForTimeout(300);
-    });
+    await nieuwLijstjeViaKnop(page, "Enige privé lijstje", { gedeeld: false });
+    await page.waitForTimeout(300);
     await page.waitForSelector("#app:not([hidden])");
 
     await page.click("#lists-btn"); // ☰-paneel was gesloten na het aanmaken hierboven
@@ -194,19 +205,19 @@ async function openDangerZone(page) {
     await page.waitForSelector("#app:not([hidden])");
     await page.click("#archive-btn");
     await openDangerZone(page);
-    await withDialogQueue(page, [true], async () => {
-      await page.click("#delete-list-btn");
-      await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
-    });
+    await page.click("#delete-list-btn");
+    await modalBevestig(page);
+    await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
     check("R1. Na het verwijderen van het gedeelde lijstje blijft de privé lijst (nog steeds de enige) actief", await page.isVisible("#list-lock-icon"));
 
     await page.click("#archive-btn");
     await openDangerZone(page);
-    await withDialogQueue(page, [true, "Weer een nieuw lijstje", true], async () => {
-      await page.click("#delete-list-btn");
-      await page.waitForTimeout(300);
-    });
+    await page.click("#delete-list-btn");
+    await modalBevestig(page);
+    // Laatste (privé) lijstje weg: addList(true) opent automatisch de "nieuw lijstje"-modal.
+    await modalNieuwLijstje(page, "Weer een nieuw lijstje", { gedeeld: true });
+    await page.waitForTimeout(300);
     await page.waitForSelector("#app:not([hidden])", { timeout: 5000 }).catch(() => {});
     check("R2. Ook na het verwijderen van je allerlaatste (privé) lijstje blijft het scherm niet leeg hangen", await page.isVisible("#app"));
 

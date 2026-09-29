@@ -17,7 +17,8 @@ import { el } from "./dom.js";
 import "./kleur.js";
 import "./compact.js";
 import { getMyName, askNameIfNeeded, updateNameBtn } from "./naam.js";
-import { showToast } from "./toast.js";
+import { showToast, showErrorToast } from "./toast.js";
+import { vraagBevestiging, vraagInvoer, vraagKeuze, toonTekst, vraagNieuwLijstje } from "./dialoog.js";
 import { normaliseerTekst } from "./tekst.js";
 
 const CHECK_ICON =
@@ -342,16 +343,15 @@ function start() {
   }
 
   // Alleen gedeelde lijstjes verbergen — een privé lijstje kwijtraken zou onherstelbaar zijn.
-  function hideList(id) {
+  async function hideList(id) {
     const l = findList(id);
     if (!l || l.prive) return;
-    if (
-      !confirm(
-        `"${l.naam || "Lijst"}" hier niet meer laten zien op dit toestel?\n\nHet lijstje zelf blijft gewoon bestaan — jij (met de code) en anderen kunnen er nog steeds bij. Terugzetten kan later via ☰ Lijstjes, onderaan bij "Verborgen op dit toestel".`
-      )
-    ) {
-      return;
-    }
+    const bevestigd = await vraagBevestiging({
+      titel: `"${l.naam || "Lijst"}" verbergen?`,
+      hint: 'Het lijstje zelf blijft gewoon bestaan — jij (met de code) en anderen kunnen er nog steeds bij. Terugzetten kan later via ☰ Lijstjes, onderaan bij "Verborgen op dit toestel".',
+      bevestigTekst: "Verbergen",
+    });
+    if (!bevestigd) return;
     removeFromVolgorde(id);
     if (!verborgenLijsten.includes(id)) {
       verborgenLijsten.push(id);
@@ -378,26 +378,32 @@ function start() {
     renderTabsAndPanel();
   }
 
-  function addList(gedwongenNieuw) {
-    const nieuw = gedwongenNieuw || confirm(
-      "Nieuw leeg lijstje maken?\n\nOK = een gloednieuw lijstje aanmaken\nAnnuleren = een bestaand lijstje toevoegen via een code die je hebt gekregen"
-    );
+  async function addList(gedwongenNieuw) {
+    let nieuw = gedwongenNieuw;
+    if (!nieuw) {
+      const keuze = await vraagKeuze({
+        titel: "Lijstje toevoegen",
+        opties: [
+          { label: "➕ Nieuw lijstje aanmaken", waarde: "nieuw" },
+          { label: "🔗 Aansluiten via code", waarde: "code" },
+        ],
+      });
+      if (!keuze) return; // geannuleerd
+      nieuw = keuze === "nieuw";
+    }
 
     if (nieuw) {
-      const naam = prompt("Naam voor het nieuwe lijstje:", "Nieuw lijstje");
-      if (naam === null) return; // geannuleerd
-      const gedeeld = confirm(
-        "Delen met je gezin (iedereen met de code ziet dit lijstje), of liever privé (alleen op dit toestel)?\n\nOK = delen met je gezin\nAnnuleren = privé houden"
-      );
+      const resultaat = await vraagNieuwLijstje();
+      if (!resultaat) return; // geannuleerd
       const id = crypto.randomUUID();
       const nieuwLijstje = {
         id,
-        naam: naam.trim() || "Nieuw lijstje",
+        naam: resultaat.naam.trim() || "Nieuw lijstje",
         items: [],
         archivedItems: [],
         updatedAt: Date.now(),
       };
-      if (gedeeld) {
+      if (resultaat.gedeeld) {
         householdLijsten.push(nieuwLijstje);
         ensureInVolgorde(id);
         saveHousehold();
@@ -411,7 +417,11 @@ function start() {
       return;
     }
 
-    const code = prompt("Plak hier de code (of de hele link) van het gezinnetje dat je erbij wilt:");
+    const code = await vraagInvoer({
+      titel: "Aansluiten via code",
+      hint: "Plak hier de code (of de hele link) van het gezinnetje dat je erbij wilt.",
+      placeholder: "bijv. a1b2c3d4",
+    });
     if (code === null) return; // geannuleerd
     let trimmed = code.trim();
     try {
@@ -423,7 +433,7 @@ function start() {
     }
     if (!trimmed) return;
     if (trimmed.includes("/")) {
-      alert('Deze code mag geen "/" bevatten. Controleer of je de juiste code hebt geplakt.');
+      showErrorToast('Deze code mag geen "/" bevatten. Controleer of je de juiste code hebt geplakt.');
       return;
     }
     // Overstappen naar een heel ander gezinnetje: dit toestel kan er maar
@@ -434,8 +444,12 @@ function start() {
   }
 
   el.listCodeValue.textContent = householdCode.slice(0, 8);
-  el.listCodeBtn.addEventListener("click", () => {
-    const next = prompt("Gezins-code (controleer of dit klopt, of plak hier een andere):", householdCode);
+  el.listCodeBtn.addEventListener("click", async () => {
+    const next = await vraagInvoer({
+      titel: "Gezins-code",
+      hint: "Controleer of dit klopt, of plak hier een andere.",
+      waarde: householdCode,
+    });
     if (next === null) return;
     let trimmed = next.trim();
     try {
@@ -447,7 +461,7 @@ function start() {
     }
     if (!trimmed || trimmed === householdCode) return;
     if (trimmed.includes("/")) {
-      alert('Deze code mag geen "/" bevatten. Controleer of je de juiste code hebt geplakt.');
+      showErrorToast('Deze code mag geen "/" bevatten. Controleer of je de juiste code hebt geplakt.');
       return;
     }
     const p = new URLSearchParams();
@@ -455,8 +469,8 @@ function start() {
     location.href = `${location.pathname}?${p.toString()}`;
   });
 
-  el.renameBtn.addEventListener("click", () => {
-    const next = prompt("Nieuwe naam voor dit lijstje:", listName);
+  el.renameBtn.addEventListener("click", async () => {
+    const next = await vraagInvoer({ titel: "Nieuwe naam voor dit lijstje", waarde: listName });
     if (next === null) return;
     setListName(next);
     const entry = activePrive
@@ -481,7 +495,21 @@ function start() {
   window.addEventListener("offline", updateOnlineStatus);
 
   // Eenmalige migratie van losse tabbladen (vorige versie, eigen code per tabblad) naar dit gezinnetje.
+  // Wordt bij elke onSnapshot opnieuw aangeroepen (zie hieronder), en het opslaan
+  // aan het eind triggert zelf ook weer zo'n snapshot — zonder onderstaande vlag
+  // zou een tweede, elkaar overlappende aanroep (terwijl de eerste nog op een
+  // antwoord op de samenvoegen-modal wacht) diezelfde modal een keer extra tonen.
+  let migratieBezig = false;
   async function migreerOudeTabs() {
+    if (migratieBezig) return;
+    migratieBezig = true;
+    try {
+      await migreerOudeTabsNu();
+    } finally {
+      migratieBezig = false;
+    }
+  }
+  async function migreerOudeTabsNu() {
     let gedaan = false;
     try {
       gedaan = localStorage.getItem(TABS_GEMIGREERD_KEY) === "1";
@@ -501,9 +529,12 @@ function start() {
         const isOudPlatteLijst = data && !data.lijsten;
         if (!isOudPlatteLijst) continue;
         const naam = tab.naam || data.listName || "Lijst";
-        const gedeeld = confirm(
-          `Dit losse lijstje "${naam}" stond nog apart op dit toestel. Samenvoegen bij je gezinscode?\n\nOK = delen met je gezin\nAnnuleren = privé houden (alleen op dit toestel)`
-        );
+        const gedeeld = await vraagBevestiging({
+          titel: `"${naam}" samenvoegen?`,
+          hint: "Dit losse lijstje stond nog apart op dit toestel. Delen met je gezin, of liever privé houden (alleen op dit toestel)?",
+          bevestigTekst: "Delen met gezin",
+          annulerenTekst: "Privé houden",
+        });
         const nieuwId = crypto.randomUUID();
         const overgezet = {
           id: nieuwId,
@@ -1026,7 +1057,7 @@ function start() {
         el.tekstDelenBtn.textContent = "Gekopieerd!";
         setTimeout(() => (el.tekstDelenBtn.textContent = origineel), 1500);
       } catch (e) {
-        prompt("Kopieer en deel deze tekst:", tekst);
+        await toonTekst({ titel: "Kopieer en deel deze tekst", tekst });
       }
     });
   }
@@ -1050,15 +1081,13 @@ function start() {
     });
   }
 
-  if (el.nameBtn) {
-    // naam.js verwerkt de naamwijziging zelf (prompt() is synchroon, dus
-    // meteen klaar); hier alleen de badge-kleurkiezer en de lijst zelf
-    // opnieuw tekenen, want die tonen ook de naam/kleur.
-    el.nameBtn.addEventListener("click", () => {
-      renderBadgeKleurPicker();
-      render();
-    });
-  }
+  // naam.js verwerkt de naamwijziging zelf (via een eigen modal, dus
+  // asynchroon) en stuurt daarna dit event; hier alleen de badge-kleurkiezer
+  // en de lijst zelf opnieuw tekenen, want die tonen ook de naam/kleur.
+  window.addEventListener("naamGewijzigd", () => {
+    renderBadgeKleurPicker();
+    render();
+  });
 
   if (el.settingsCloseBtn) {
     el.settingsCloseBtn.addEventListener("click", () => {
@@ -1080,9 +1109,12 @@ function start() {
 
   if (el.deleteListBtn) {
     el.deleteListBtn.addEventListener("click", async () => {
-      const bevestigd = confirm(
-        `Hiermee verwijder je "${listName}" ${activePrive ? "van dit toestel" : "voor iedereen die de code heeft"}. Je hebt daarna nog ${ARCHIVE_DAYS} dagen om 'm terug te zetten — daarna is het lijstje echt weg.\n\nWeet je het zeker?`
-      );
+      const bevestigd = await vraagBevestiging({
+        titel: `"${listName}" verwijderen?`,
+        hint: `Hiermee verwijder je dit lijstje ${activePrive ? "van dit toestel" : "voor iedereen die de code heeft"}. Je hebt daarna nog ${ARCHIVE_DAYS} dagen om 'm terug te zetten — daarna is het lijstje echt weg.`,
+        bevestigTekst: "Verwijderen",
+        gevaarlijk: true,
+      });
       if (!bevestigd) return;
 
       const deletedEntry = { id: activeId, naam: listName, items, archivedItems, updatedAt: Date.now(), deletedAt: Date.now() };
@@ -1545,6 +1577,18 @@ function start() {
     }
   }
 
+  // Zoekt het item opnieuw op via z'n id in de HUIDIGE `items`-array. Nodig
+  // ná elke `await` op een modal (vraagInvoer/vraagBevestiging e.d.): terwijl
+  // die openstaat kan een eerder geplande scheduleSave() alsnog afronden en
+  // via de onSnapshot-echo `items` vervangen door verse (maar andere) object-
+  // instanties — zonder deze her-opzoeking zou de wijziging dan stilletjes op
+  // een verweesd, niet meer getekend object belanden. (Kon niet gebeuren zo-
+  // lang dit nog een blokkerende native prompt() was; met de niet-blokkerende
+  // modal wel.)
+  function huidigItem(item) {
+    return items.find((i) => i.id === item.id) || item;
+  }
+
   function buildItemRow(item, { showMoveButtons, alleNamen }) {
     const li = document.createElement("li");
     li.className = item.done ? "done" : "";
@@ -1660,18 +1704,22 @@ function start() {
         "aria-label",
         `${item.text} ${item.bezig ? "niet meer op 'bezig' zetten" : "op 'bezig' zetten"}`
       );
-      bezigBtn.addEventListener("click", () => {
+      bezigBtn.addEventListener("click", async () => {
         openItemMenuId = null;
         if (item.bezig) {
           delete item.bezig;
           delete item.bezigNotitie;
           delete item.bezigDoor;
         } else {
-          const notitie = prompt(`Kort notitie bij "${item.text}" (mag leeg blijven):`, "");
+          const notitie = await vraagInvoer({
+            titel: `Kort notitie bij "${item.text}"`,
+            hint: "Mag leeg blijven.",
+          });
           if (notitie === null) {
             render(); // geannuleerd: niks aanpassen, menu wel sluiten
             return;
           }
+          item = huidigItem(item);
           item.bezig = true;
           item.bezigNotitie = notitie.trim() || null;
           if (getMyName()) item.bezigDoor = getMyName();
@@ -1730,10 +1778,11 @@ function start() {
     bewerkBtn.className = "bewerk-btn";
     bewerkBtn.textContent = "✏️ Bewerken";
     bewerkBtn.setAttribute("aria-label", `${item.text} bewerken`);
-    bewerkBtn.addEventListener("click", () => {
-      const nieuw = prompt("Tekst aanpassen:", item.text);
+    bewerkBtn.addEventListener("click", async () => {
+      const nieuw = await vraagInvoer({ titel: "Tekst aanpassen", waarde: item.text });
       openItemMenuId = null;
       if (nieuw === null) { render(); return; } // geannuleerd: niks aanpassen, menu wel sluiten
+      item = huidigItem(item);
       const schoon = nieuw.trim();
       if (schoon) item.text = schoon;
       render();
@@ -2411,7 +2460,7 @@ function start() {
         itemDetailsFotoGewijzigd = true;
         renderItemDetailsFoto();
       } catch (e) {
-        alert("Kon deze foto niet verwerken. Probeer een andere foto.");
+        showErrorToast("Kon deze foto niet verwerken. Probeer een andere foto.");
       }
     });
   }
@@ -2485,7 +2534,7 @@ function start() {
           await setDoc(doc(db, FOTO_COLLECTIE, item.id), { dataUrl: itemDetailsFotoUrl, updatedAt: Date.now() });
           item.heeftFoto = true;
         } catch (e) {
-          alert("Foto opslaan is niet gelukt (mogelijk geen internet). De rest van de details is wel opgeslagen.");
+          showErrorToast("Foto opslaan is niet gelukt (mogelijk geen internet). De rest van de details is wel opgeslagen.");
         }
       } else if (item.heeftFoto) {
         try {
@@ -2529,7 +2578,7 @@ function start() {
 
   el.shareBtn.addEventListener("click", async () => {
     if (activePrive) {
-      alert("Dit is een privé lijstje — die kun je niet delen. Maak 'm gedeeld via het ☰-lijstjespaneel als je 'm alsnog wilt delen.");
+      showErrorToast("Dit is een privé lijstje — die kun je niet delen. Maak 'm gedeeld via het ☰-lijstjespaneel als je 'm alsnog wilt delen.");
       return;
     }
     const url = location.href;
@@ -2547,15 +2596,8 @@ function start() {
       el.shareBtn.textContent = "Link gekopieerd!";
       setTimeout(() => (el.shareBtn.textContent = original), 1500);
     } catch (e) {
-      prompt("Deel deze link met je gezin:", url);
+      await toonTekst({ titel: "Deel deze link met je gezin", tekst: url });
     }
   });
 
-}
-
-// --- Service worker (PWA) ---
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch((e) => console.error("SW-registratie mislukt:", e));
-  });
 }

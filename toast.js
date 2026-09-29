@@ -1,15 +1,18 @@
-// Kort meldingsbalkje onderin, met "Ongedaan maken" — gebruikt door de app
-// na het verwijderen of afvinken van een item.
+// Twee soorten meldingsbalkjes onderin: het gewone (grijs, met "Ongedaan
+// maken" of een voorgestelde vervolgactie) en het foutmelding-balkje (rood,
+// voor iets dat écht mislukt is — i.p.v. een blokkerende alert()). Ze staan
+// in dezelfde stapel (#toast-stack) en kunnen tegelijk zichtbaar zijn.
 import { el } from "./dom.js";
 
 let toastTimer = null;
 let undoStack = []; // { text, undo, actieLabel } — meest recente actie achteraan
+let foutTimer = null;
 
-function positionToastAboveFooter() {
-  if (!el.toast) return;
+function positionStackAboveFooter() {
+  if (!el.toastStack) return;
   const footer = document.querySelector(".statusbar");
   const footerHeight = footer ? footer.getBoundingClientRect().height : 0;
-  el.toast.style.bottom = `calc(${footerHeight}px + env(safe-area-inset-bottom, 0px) + 10px)`;
+  el.toastStack.style.bottom = `calc(${footerHeight}px + env(safe-area-inset-bottom, 0px) + 10px)`;
 }
 
 function renderToast() {
@@ -18,7 +21,7 @@ function renderToast() {
   el.toastText.textContent =
     undoStack.length > 1 ? `${top.text} (+${undoStack.length - 1} eerder)` : top.text;
   if (el.toastUndoBtn) el.toastUndoBtn.textContent = top.actieLabel || "Ongedaan maken";
-  positionToastAboveFooter();
+  positionStackAboveFooter();
   el.toast.hidden = false;
 }
 
@@ -51,4 +54,35 @@ if (el.toastUndoBtn) {
       hideToast();
     }
   });
+}
+
+// Foutmelding-toast: voor iets dat écht mislukt is (opslaan, foto-upload,
+// een ongeldige invoer). In tegenstelling tot alert() blokkeert dit de rest
+// van het scherm niet, en verdwijnt vanzelf (of via de actieknop).
+// actieLabel/actieFn zijn beide optioneel (bijv. "Probeer opnieuw").
+export function showErrorToast(text, actieLabel, actieFn) {
+  if (!el.errorToast) return;
+  el.errorToastText.textContent = text;
+  positionStackAboveFooter();
+  if (el.errorToastActieBtn) {
+    if (actieLabel && actieFn) {
+      el.errorToastActieBtn.textContent = actieLabel;
+      el.errorToastActieBtn.hidden = false;
+    } else {
+      el.errorToastActieBtn.hidden = true;
+    }
+  }
+  el.errorToast.hidden = false;
+  clearTimeout(foutTimer);
+  foutTimer = setTimeout(() => {
+    if (el.errorToast) el.errorToast.hidden = true;
+  }, 7000);
+
+  if (el.errorToastActieBtn && actieFn) {
+    el.errorToastActieBtn.onclick = () => {
+      clearTimeout(foutTimer);
+      el.errorToast.hidden = true;
+      actieFn();
+    };
+  }
 }

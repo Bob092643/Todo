@@ -29,16 +29,25 @@ function check(label, cond) {
   if (cond) pass++; else fail++;
 }
 
-async function withDialogQueue(page, answers, fn) {
-  const queue = [...answers];
-  const handler = async (dialog) => {
-    const answer = queue.shift();
-    if (answer === false || answer === undefined) await dialog.dismiss();
-    else if (answer === true) await dialog.accept();
-    else await dialog.accept(answer);
-  };
-  page.on("dialog", handler);
-  try { await fn(); } finally { page.off("dialog", handler); }
+// Modal-helpers: vervangen withDialogQueue nu confirm()/prompt() weg zijn en
+// zijn vervangen door de eigen modals uit dialoog.js.
+async function modalWacht(page) {
+  await page.waitForSelector(".modal-overlay.zichtbaar");
+}
+async function modalBevestig(page) {
+  await modalWacht(page);
+  await page.click(".modal-knoppen .btn-primary, .modal-knoppen .btn-danger");
+}
+async function modalKiesOptie(page, tekst) {
+  await modalWacht(page);
+  await page.click(`.modal-keuze-btn:has-text("${tekst}")`);
+}
+// Samengestelde helper voor het "nieuw lijstje"-scherm (naam + gedeeld/privé in één modal).
+async function modalNieuwLijstje(page, naam, { gedeeld = true } = {}) {
+  await modalWacht(page);
+  await page.fill(".modal-input", naam);
+  if (!gedeeld) await page.click('.modal-keuze-btn:has-text("Privé")');
+  await page.click('.modal-knoppen button:has-text("Aanmaken")');
 }
 
 (async () => {
@@ -59,18 +68,18 @@ async function withDialogQueue(page, answers, fn) {
 
   await page.click("#lists-btn");
   await page.waitForSelector("#lists-panel:not([hidden])");
-  await withDialogQueue(page, [true, "Zomerkamp lijstje", true], async () => {
-    await page.click("#lists-add-btn");
-    await page.waitForTimeout(300);
-  });
+  await page.click("#lists-add-btn");
+  await modalKiesOptie(page, "Nieuw lijstje aanmaken");
+  await modalNieuwLijstje(page, "Zomerkamp lijstje", { gedeeld: true });
+  await page.waitForTimeout(300);
   await page.waitForSelector("#app:not([hidden])");
 
   await page.click("#lists-btn");
   await page.waitForSelector("#lists-panel:not([hidden])");
-  await withDialogQueue(page, [true, "Ons privé lijstje", false], async () => {
-    await page.click("#lists-add-btn");
-    await page.waitForTimeout(300);
-  });
+  await page.click("#lists-add-btn");
+  await modalKiesOptie(page, "Nieuw lijstje aanmaken");
+  await modalNieuwLijstje(page, "Ons privé lijstje", { gedeeld: false });
+  await page.waitForTimeout(300);
   await page.waitForSelector("#app:not([hidden])");
 
   await page.click("#lists-btn");
@@ -82,10 +91,9 @@ async function withDialogQueue(page, answers, fn) {
   const zichtbaarVoor = await page.locator('.lists-panel-list .lists-panel-name:has-text("Zomerkamp lijstje")').count();
   check("V2. 'Zomerkamp lijstje' staat gewoon in de lijst vóór het verbergen", zichtbaarVoor === 1);
 
-  await withDialogQueue(page, [true], async () => {
-    await page.click('.lists-panel-row:has-text("Zomerkamp lijstje") button:has-text("Verbergen")');
-    await page.waitForTimeout(200);
-  });
+  await page.click('.lists-panel-row:has-text("Zomerkamp lijstje") button:has-text("Verbergen")');
+  await modalBevestig(page);
+  await page.waitForTimeout(200);
 
   const zichtbaarNa = await page.locator('#lists-panel-list .lists-panel-name:has-text("Zomerkamp lijstje")').count();
   check("V3. Na verbergen staat het lijstje niet meer in het gewone rijtje", zichtbaarNa === 0);

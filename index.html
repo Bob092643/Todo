@@ -274,12 +274,25 @@
     </button>
   </footer>
 
-  <div id="toast" class="toast" hidden>
-    <span id="toast-text"></span>
-    <button id="toast-undo-btn" class="btn btn-ghost btn-small" type="button">Ongedaan maken</button>
+  <div id="toast-stack">
+    <div id="toast" class="toast" hidden>
+      <span id="toast-text"></span>
+      <button id="toast-undo-btn" class="btn btn-ghost btn-small" type="button">Ongedaan maken</button>
+    </div>
+    <div id="error-toast" class="toast toast-fout" hidden>
+      <span id="error-toast-text"></span>
+      <button id="error-toast-actie-btn" class="btn btn-ghost btn-small" type="button" hidden></button>
+    </div>
+  </div>
+
+  <div id="update-balk" class="update-balk" hidden>
+    <span>🔄 Nieuwe versie beschikbaar</span>
+    <button id="update-ververs-btn" class="btn btn-ghost btn-small" type="button">Ververs</button>
+    <button id="update-sluit-btn" class="update-sluit-btn" type="button" aria-label="Melding wegtikken">✕</button>
   </div>
 
   <script src="./config.js"></script>
   <script type="module" src="./app.js"></script>
+  <script type="module" src="./update.js"></script>
 </body>
 </html>
