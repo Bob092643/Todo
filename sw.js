@@ -1,4 +1,4 @@
-const CACHE_NAME = "boodschappenlijst-v37";
+const CACHE_NAME = "boodschappenlijst-v38";
 // Elke module die app.js importeert moet hier ook staan, anders start de app offline niet op.
 const APP_SHELL = [
   "./",
@@ -9,6 +9,8 @@ const APP_SHELL = [
   "./kleur.js",
   "./naam.js",
   "./toast.js",
+  "./dialoog.js",
+  "./update.js",
   "./compact.js",
   "./tekst.js",
   "./config.js",
@@ -19,7 +21,14 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
   );
-  self.skipWaiting();
+  // Bewust GEEN self.skipWaiting() hier: deze nieuwe worker blijft "waiting"
+  // tot de pagina er zelf om vraagt (via het update-balkje, zie update.js) —
+  // zo kan de gebruiker eerst zien dat er een update is in plaats van dat de
+  // app zomaar onder 'm verandert.
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {

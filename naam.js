@@ -1,6 +1,7 @@
 // Persoonlijke naam (alleen op dit toestel) — zo zien anderen wie iets
 // heeft toegevoegd, afgevinkt of op "bezig" heeft gezet.
 import { el } from "./dom.js";
+import { vraagInvoer } from "./dialoog.js";
 
 const NAME_STORAGE_KEY = "boodschappenlijst:naam";
 const NAME_ASKED_KEY = "boodschappenlijst:naam-gevraagd";
@@ -46,19 +47,21 @@ export function updateNameBtn() {
 updateNameBtn();
 
 if (el.nameBtn) {
-  el.nameBtn.addEventListener("click", () => {
-    const naam = prompt(
-      "Hoe wil je genoemd worden in deze lijst? (bijv. Papa, Mama, Joris)\n\nZo zien anderen wie iets heeft toegevoegd of afgevinkt.",
-      myName || ""
-    );
+  el.nameBtn.addEventListener("click", async () => {
+    const naam = await vraagInvoer({
+      titel: "Hoe wil je genoemd worden in deze lijst?",
+      hint: "Bijv. Papa, Mama, Joris. Zo zien anderen wie iets heeft toegevoegd of afgevinkt.",
+      waarde: myName || "",
+    });
     if (naam === null) return; // geannuleerd
     myName = normalizeName(naam);
     saveMyName(myName);
     updateNameBtn();
+    window.dispatchEvent(new CustomEvent("naamGewijzigd"));
   });
 }
 
-export function askNameIfNeeded() {
+export async function askNameIfNeeded() {
   let asked = false;
   try {
     asked = localStorage.getItem(NAME_ASKED_KEY) === "1";
@@ -71,10 +74,10 @@ export function askNameIfNeeded() {
   } catch (e) {
     /* niet erg */
   }
-  const naam = prompt(
-    "Hoe wil je genoemd worden in deze lijst? (bijv. Papa, Mama, Joris)\n\nZo zien anderen wie iets heeft toegevoegd of afgevinkt. Je kunt dit later nog aanpassen via ⚙️ Instellingen. Leeg laten kan ook.",
-    ""
-  );
+  const naam = await vraagInvoer({
+    titel: "Hoe wil je genoemd worden in deze lijst?",
+    hint: "Bijv. Papa, Mama, Joris. Zo zien anderen wie iets heeft toegevoegd of afgevinkt. Je kunt dit later nog aanpassen via ⚙️ Instellingen. Leeg laten kan ook.",
+  });
   const normalized = normalizeName(naam);
   if (normalized) {
     myName = normalized;

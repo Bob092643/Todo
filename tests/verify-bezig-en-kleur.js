@@ -28,16 +28,19 @@ function check(label, cond) {
   if (cond) pass++; else fail++;
 }
 
-async function withDialogQueue(page, answers, fn) {
-  const queue = [...answers];
-  const handler = async (dialog) => {
-    const answer = queue.shift();
-    if (answer === false || answer === undefined) await dialog.dismiss();
-    else if (answer === true) await dialog.accept();
-    else await dialog.accept(answer);
-  };
-  page.on("dialog", handler);
-  try { await fn(); } finally { page.off("dialog", handler); }
+// Modal-helpers: vervangen withDialogQueue nu confirm()/prompt() weg zijn en
+// zijn vervangen door de eigen modals uit dialoog.js.
+async function modalWacht(page) {
+  await page.waitForSelector(".modal-overlay.zichtbaar");
+}
+async function modalVulIn(page, waarde) {
+  await modalWacht(page);
+  await page.fill(".modal-input", waarde);
+  await page.click(".modal-knoppen .btn-primary");
+}
+async function modalAnnuleer(page) {
+  await modalWacht(page);
+  await page.click(".modal-knoppen .modal-btn-line");
 }
 
 async function openItemMenu(page) {
@@ -64,10 +67,9 @@ async function openItemMenu(page) {
 
     await page.click("#settings-btn");
     await page.waitForSelector("#settings-panel:not([hidden])");
-    await withDialogQueue(page, ["Bob"], async () => {
-      await page.click("#name-btn");
-      await page.waitForTimeout(150);
-    });
+    await page.click("#name-btn");
+    await modalVulIn(page, "Bob");
+    await page.waitForTimeout(150);
     await page.click("#settings-close-btn");
 
     await page.fill("#new-item", "Oma bellen");
@@ -81,10 +83,9 @@ async function openItemMenu(page) {
     check("W2. Vóór het zetten op bezig is er geen logregel", logVoor === 0);
 
     await openItemMenu(page);
-    await withDialogQueue(page, ["gebeld, voicemail ingesproken"], async () => {
-      await page.click(".bezig-btn");
-      await page.waitForTimeout(150);
-    });
+    await page.click(".bezig-btn");
+    await modalVulIn(page, "gebeld, voicemail ingesproken");
+    await page.waitForTimeout(150);
     const logTekst1 = await page.textContent(".item-bezig-log");
     check("W3. Met een notitie staat 'Naam: notitie' in de logregel (geen tijdstip)", logTekst1.trim() === "Bob: gebeld, voicemail ingesproken");
 
@@ -97,10 +98,9 @@ async function openItemMenu(page) {
     check("W5. Na nog een keer klikken is de logregel weer weg", (await page.locator(".item-bezig-log").count()) === 0);
 
     await openItemMenu(page);
-    await withDialogQueue(page, [""], async () => {
-      await page.click(".bezig-btn");
-      await page.waitForTimeout(150);
-    });
+    await page.click(".bezig-btn");
+    await modalVulIn(page, "");
+    await page.waitForTimeout(150);
     const logTekst2 = await page.textContent(".item-bezig-log");
     check("W6. Zonder notitie staat alleen de naam in de logregel (geen extra zin, geen tijd)", logTekst2.trim() === "Bob");
 
@@ -108,17 +108,15 @@ async function openItemMenu(page) {
     await page.click(".bezig-btn"); // eerst weer uitzetten
     await page.waitForTimeout(100);
     await openItemMenu(page);
-    await withDialogQueue(page, [false], async () => {
-      await page.click(".bezig-btn");
-      await page.waitForTimeout(150);
-    });
+    await page.click(".bezig-btn");
+    await modalAnnuleer(page);
+    await page.waitForTimeout(150);
     check("W7. Annuleren van de notitie-prompt zet het item niet alsnog op bezig", (await page.locator(".bezig-btn.active").count()) === 0);
 
     await openItemMenu(page);
-    await withDialogQueue(page, ["notitie die zo weer weg moet"], async () => {
-      await page.click(".bezig-btn");
-      await page.waitForTimeout(150);
-    });
+    await page.click(".bezig-btn");
+    await modalVulIn(page, "notitie die zo weer weg moet");
+    await page.waitForTimeout(150);
     check("W8. (setup) Item staat weer op bezig vóór het afvinken", (await page.locator(".item-bezig-log").count()) === 1);
     await page.click(".check input");
     await page.waitForTimeout(150);

@@ -29,20 +29,26 @@ function check(label, cond) {
   if (cond) pass++; else fail++;
 }
 
-async function withDialogQueue(page, answers, fn) {
-  const queue = [...answers];
-  const handler = (dialog) => {
-    const answer = queue.shift();
-    if (answer === true) dialog.accept();
-    else if (answer === false) dialog.dismiss();
-    else dialog.accept(String(answer));
-  };
-  page.on("dialog", handler);
-  try {
-    await fn();
-  } finally {
-    page.off("dialog", handler);
-  }
+// Modal-helpers: vervangen withDialogQueue nu confirm()/prompt() weg zijn en
+// zijn vervangen door de eigen modals uit dialoog.js.
+async function modalWacht(page) {
+  await page.waitForSelector(".modal-overlay.zichtbaar");
+}
+async function modalKiesOptie(page, tekst) {
+  await modalWacht(page);
+  await page.click(`.modal-keuze-btn:has-text("${tekst}")`);
+}
+// Samengestelde helper voor het "nieuw lijstje"-scherm (naam + gedeeld/privé in één modal).
+async function modalNieuwLijstje(page, naam, { gedeeld = true } = {}) {
+  await modalWacht(page);
+  await page.fill(".modal-input", naam);
+  if (!gedeeld) await page.click('.modal-keuze-btn:has-text("Privé")');
+  await page.click('.modal-knoppen button:has-text("Aanmaken")');
+}
+async function nieuwGedeeldLijstjeToevoegen(page, naam) {
+  await page.click("#lists-add-btn");
+  await modalKiesOptie(page, "Nieuw lijstje aanmaken");
+  await modalNieuwLijstje(page, naam, { gedeeld: true });
 }
 
 async function openListsPanel(page) {
@@ -77,10 +83,8 @@ async function openListsPanel(page) {
     await page.waitForTimeout(400);
 
     await openListsPanel(page);
-    await withDialogQueue(page, [true, "Klusjes", true], async () => {
-      await page.click("#lists-add-btn");
-      await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
-    });
+    await nieuwGedeeldLijstjeToevoegen(page, "Klusjes");
+    await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
     await page.fill("#new-item", "Kraan repareren");
     await page.click("button[type=submit]");
@@ -123,10 +127,8 @@ async function openListsPanel(page) {
     await page.waitForTimeout(400);
 
     await openListsPanel(page);
-    await withDialogQueue(page, [true, "Andere lijst", true], async () => {
-      await page.click("#lists-add-btn");
-      await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
-    });
+    await nieuwGedeeldLijstjeToevoegen(page, "Andere lijst");
+    await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
 
     await page.click("#archive-btn");
@@ -158,11 +160,9 @@ async function openListsPanel(page) {
     await page.goto(`${base}/index.html?lijst=centraal-archief-tabwissel-test`);
     await page.waitForSelector("#app:not([hidden])");
 
-    await withDialogQueue(page, [true, "Tweede lijst", true], async () => {
-      await openListsPanel(page);
-      await page.click("#lists-add-btn");
-      await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
-    });
+    await openListsPanel(page);
+    await nieuwGedeeldLijstjeToevoegen(page, "Tweede lijst");
+    await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
 
     await page.click("#archive-btn");

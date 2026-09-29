@@ -28,21 +28,38 @@ function check(label, cond) {
   if (cond) pass++; else fail++;
 }
 
-// Handelt meerdere dialogs (bv. confirm() gevolgd door prompt()) één voor één af via een antwoorden-wachtrij.
-async function withDialogQueue(page, answers, fn) {
-  const queue = [...answers];
-  const handler = async (dialog) => {
-    const answer = queue.shift();
-    if (answer === false || answer === undefined) await dialog.dismiss();
-    else if (answer === true) await dialog.accept();
-    else await dialog.accept(answer);
-  };
-  page.on("dialog", handler);
-  try {
-    await fn();
-  } finally {
-    page.off("dialog", handler);
-  }
+// Modal-helpers: vervangen withDialogQueue/page.on("dialog") nu confirm()/prompt()/
+// alert() weg zijn en zijn vervangen door de eigen modals (dialoog.js) en de
+// foutmelding-toast (toast.js, #error-toast).
+async function modalWacht(page) {
+  await page.waitForSelector(".modal-overlay.zichtbaar");
+}
+async function modalKiesOptie(page, tekst) {
+  await modalWacht(page);
+  await page.click(`.modal-keuze-btn:has-text("${tekst}")`);
+}
+async function modalVulIn(page, waarde) {
+  await modalWacht(page);
+  await page.fill(".modal-input", waarde);
+}
+async function modalBevestig(page) {
+  await modalWacht(page);
+  await page.click(".modal-knoppen .btn-primary, .modal-knoppen .btn-danger");
+}
+async function modalAnnuleer(page) {
+  await modalWacht(page);
+  await page.click(".modal-knoppen .modal-btn-line");
+}
+// Samengestelde helper voor het "nieuw lijstje"-scherm (naam + gedeeld/privé in één modal).
+async function modalNieuwLijstje(page, naam, { gedeeld = true } = {}) {
+  await modalWacht(page);
+  await page.fill(".modal-input", naam);
+  if (!gedeeld) await page.click('.modal-keuze-btn:has-text("Privé")');
+  await page.click('.modal-knoppen button:has-text("Aanmaken")');
+}
+async function foutToastTekst(page) {
+  await page.waitForSelector("#error-toast:not([hidden])", { timeout: 3000 }).catch(() => {});
+  return (await page.isVisible("#error-toast")) ? await page.textContent("#error-toast-text") : null;
 }
 
 async function openListsPanel(page) {
@@ -108,8 +125,9 @@ async function withServer(root, fn) {
     await page2.waitForFunction(() => document.getElementById("list").textContent.includes("Brood"), { timeout: 15000 }).catch(() => {});
     check("B1. Item toegevoegd op toestel 1 verschijnt op toestel 2", (await page2.textContent("#list")).includes("Brood"));
 
-    page1.on("dialog", (d) => d.accept("Takenlijst gezin Boot"));
     await page1.click("#rename-btn");
+    await modalVulIn(page1, "Takenlijst gezin Boot");
+    await modalBevestig(page1);
     await page2.waitForFunction(() => document.getElementById("list-name").textContent === "Takenlijst gezin Boot", { timeout: 15000 }).catch(() => {});
     check("B2. Naam aangepast op toestel 1 verschijnt op toestel 2", (await page2.textContent("#list-name")) === "Takenlijst gezin Boot");
 
@@ -133,37 +151,34 @@ async function withServer(root, fn) {
     await page.waitForSelector("#app:not([hidden])");
     check("C3. Andere code in de link stapt over naar dat andere gezinnetje", new URL(page.url()).searchParams.get("lijst") === "code-BBB-ander-gezinnetje");
 
-    page.on("dialog", (d) => d.accept("code-AAA")); // terug naar het eerste gezinnetje voor de rest van de C-serie
+    // Terug naar het eerste gezinnetje voor de rest van de C-serie (geen check hierop zelf).
     await page.click("#list-code-btn");
+    await modalVulIn(page, "code-AAA");
+    await modalBevestig(page);
     await page.waitForURL(/lijst=code-AAA/, { timeout: 3000 }).catch(() => {});
-    page.removeAllListeners("dialog");
 
-    page.on("dialog", (d) => d.accept("code-CCC-bewust"));
     await page.click("#list-code-btn");
+    await modalVulIn(page, "code-CCC-bewust");
+    await modalBevestig(page);
     await page.waitForURL(/lijst=code-CCC-bewust/, { timeout: 3000 }).catch(() => {});
     check("C4. Bewust aanpassen via het codevakje werkt", new URL(page.url()).searchParams.get("lijst") === "code-CCC-bewust");
 
-    page.removeAllListeners("dialog");
-    page.on("dialog", (d) => d.dismiss());
     await page.click("#list-code-btn");
+    await modalAnnuleer(page);
     await page.waitForTimeout(300);
     check("C5. Annuleren via het codevakje verandert niets", new URL(page.url()).searchParams.get("lijst") === "code-CCC-bewust");
 
-    page.removeAllListeners("dialog");
-    page.on("dialog", (d) => d.accept(`${base}/index.html?lijst=code-uit-volledige-link`));
     await page.click("#list-code-btn");
+    await modalVulIn(page, `${base}/index.html?lijst=code-uit-volledige-link`);
+    await modalBevestig(page);
     await page.waitForURL(/lijst=code-uit-volledige-link/, { timeout: 3000 }).catch(() => {});
     check("C6. Hele link plakken haalt er automatisch de juiste code uit", new URL(page.url()).searchParams.get("lijst") === "code-uit-volledige-link");
 
-    page.removeAllListeners("dialog");
-    let alertMsg = null;
-    page.on("dialog", async (d) => {
-      if (d.type() === "alert") { alertMsg = d.message(); await d.accept(); }
-      else await d.accept("foute/code/met/slash");
-    });
     await page.click("#list-code-btn");
-    await page.waitForTimeout(400);
-    check("C7. Code met '/' wordt geweigerd met duidelijke melding", !!alertMsg);
+    await modalVulIn(page, "foute/code/met/slash");
+    await modalBevestig(page);
+    const foutMsg = await foutToastTekst(page);
+    check("C7. Code met '/' wordt geweigerd met duidelijke melding", !!foutMsg);
     check("C8. Lijst-code blijft ongewijzigd na weigering", new URL(page.url()).searchParams.get("lijst") === "code-uit-volledige-link");
 
     check("C9. Codevakje toont de eerste 8 tekens van de code", (await page.textContent("#list-code-value")) === "code-uit".slice(0, 8));
@@ -179,8 +194,9 @@ async function withServer(root, fn) {
     await page.waitForSelector("#app:not([hidden])");
     check("D1. Standaardnaam is 'Onze lijst' als er nog niets is opgeslagen", (await page.textContent("#list-name")) === "Onze lijst");
 
-    page.on("dialog", (d) => d.accept("Mijn eigen naam"));
     await page.click("#rename-btn");
+    await modalVulIn(page, "Mijn eigen naam");
+    await modalBevestig(page);
     await page.waitForTimeout(150);
     check("D2. Naam wijzigt direct in de UI", (await page.textContent("#list-name")) === "Mijn eigen naam");
     check("D3. Documenttitel volgt de naam", (await page.title()) === "Mijn eigen naam");
@@ -243,10 +259,10 @@ async function withServer(root, fn) {
     await openListsPanel(page);
     check("G2. Het ☰-paneel toont het eerste lijstje ('Onze lijst')", (await page.textContent("#lists-panel-list")).includes("Onze lijst"));
 
-    await withDialogQueue(page, [true, "Klusjes", true], async () => {
-      await page.click("#lists-add-btn");
-      await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
-    });
+    await page.click("#lists-add-btn");
+    await modalKiesOptie(page, "Nieuw lijstje aanmaken");
+    await modalNieuwLijstje(page, "Klusjes", { gedeeld: true });
+    await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
     check("G3. Na het aanmaken is het nieuwe gedeelde lijstje meteen actief", (await page.textContent("#list-name")) === "Klusjes");
 
@@ -268,18 +284,16 @@ async function withServer(root, fn) {
     check("G6. Terug op 'Klusjes' staat het item er nog steeds", (await page.textContent("#list")).includes("Prullenbak buiten zetten"));
 
     await openListsPanel(page);
-    await withDialogQueue(page, [true, "Verjaardagslijst", false], async () => {
-      await page.click("#lists-add-btn");
-      await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
-    });
+    await page.click("#lists-add-btn");
+    await modalKiesOptie(page, "Nieuw lijstje aanmaken");
+    await modalNieuwLijstje(page, "Verjaardagslijst", { gedeeld: false });
+    await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
     check("G7. Nieuw privé lijstje krijgt een zichtbaar 🔒-slotje bij de titel", await page.isVisible("#list-lock-icon"));
 
-    let alertMsg = null;
-    page.once("dialog", async (d) => { alertMsg = d.message(); await d.accept(); });
     await page.click("#share-btn");
-    await page.waitForTimeout(100);
-    check("G8. Delen van een privé lijstje wordt geblokkeerd met uitleg", !!alertMsg && alertMsg.includes("niet delen"));
+    const foutmelding = await foutToastTekst(page);
+    check("G8. Delen van een privé lijstje wordt geblokkeerd met uitleg", !!foutmelding && foutmelding.includes("niet delen"));
 
     await openListsPanel(page);
     const priveRow = page.locator(".lists-panel-row", { hasText: "Verjaardagslijst" });
@@ -287,8 +301,8 @@ async function withServer(root, fn) {
     check("G9. Een privé lijstje heeft geen 'verbergen'-knop", (await priveRow.locator(".lists-panel-hide").count()) === 0);
     check("G10. Een gedeeld lijstje heeft wél een 'verbergen'-knop", (await gedeeldRow.locator(".lists-panel-hide").count()) === 1);
 
-    page.once("dialog", (d) => d.accept());
     await gedeeldRow.locator(".lists-panel-hide").click();
+    await modalBevestig(page);
     await page.waitForTimeout(150);
     check("G11. Na verbergen staat 'Klusjes' niet meer in het paneel", !(await page.textContent("#lists-panel-list")).includes("Klusjes"));
 
@@ -307,10 +321,10 @@ async function withServer(root, fn) {
 
     async function nieuwGedeeldLijstje(naam) {
       await openListsPanel(page1);
-      await withDialogQueue(page1, [true, naam, true], async () => {
-        await page1.click("#lists-add-btn");
-        await page1.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
-      });
+      await page1.click("#lists-add-btn");
+      await modalKiesOptie(page1, "Nieuw lijstje aanmaken");
+      await modalNieuwLijstje(page1, naam, { gedeeld: true });
+      await page1.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
       await page1.waitForSelector("#app:not([hidden])");
       return new URL(page1.url()).searchParams.get("actief");
     }
@@ -376,18 +390,18 @@ async function withServer(root, fn) {
     await page.waitForSelector("#app:not([hidden])");
 
     await openListsPanel(page);
-    await withDialogQueue(page, [true, "Op te ruimen lijstje", true], async () => {
-      await page.click("#lists-add-btn");
-      await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
-    });
+    await page.click("#lists-add-btn");
+    await modalKiesOptie(page, "Nieuw lijstje aanmaken");
+    await modalNieuwLijstje(page, "Op te ruimen lijstje", { gedeeld: true });
+    await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
 
     await page.click("#archive-btn");
     await page.waitForSelector("#archive-panel:not([hidden])");
     await page.click(".danger-zone-summary"); // gevarenzone uitklappen
     await page.waitForSelector("#delete-list-btn:visible");
-    page.once("dialog", (d) => d.accept());
     await page.click("#delete-list-btn");
+    await modalBevestig(page);
     await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
     check("I1. Na verwijderen schakelt de app naar een overgebleven lijstje", (await page.textContent("#list-name")) !== "Op te ruimen lijstje");
@@ -414,11 +428,9 @@ async function withServer(root, fn) {
     check("I4. Het verwijderde item staat in het archief", (await page.textContent("#archive-list")).includes("Weg te gooien item"));
     check("I5. Er staat een 'Verwijder definitief'-knop bij, zonder extra bevestiging nodig", (await page.locator(".btn-delete-forever").count()) === 1);
 
-    let dialogFiredOnForeverDelete = false;
-    page.once("dialog", async (d) => { dialogFiredOnForeverDelete = true; await d.dismiss(); });
     await page.click(".btn-delete-forever");
     await page.waitForTimeout(150);
-    check("I6. 'Verwijder definitief' vraagt geen extra bevestiging", !dialogFiredOnForeverDelete);
+    check("I6. 'Verwijder definitief' vraagt geen extra bevestiging", (await page.locator(".modal-overlay").count()) === 0);
     check("I7. Het item is na 'Verwijder definitief' echt weg uit het archief", !(await page.textContent("#archive-list")).includes("Weg te gooien item"));
 
     await ctx.close();
@@ -463,12 +475,11 @@ async function withServer(root, fn) {
       );
     });
 
-    // Het eerste tabblad wordt het gezinnetje zelf; het tweede wordt via 1 dialoog (gedeeld/privé) samengevoegd.
-    await withDialogQueue(page, [true], async () => {
-      await page.goto(`${base}/index.html`);
-      await page.waitForSelector("#app:not([hidden])");
-      await page.waitForTimeout(300);
-    });
+    // Het eerste tabblad wordt het gezinnetje zelf; het tweede wordt via 1 modal (gedeeld/privé) samengevoegd.
+    await page.goto(`${base}/index.html`);
+    await page.waitForSelector("#app:not([hidden])");
+    await modalBevestig(page); // "Delen met gezin" — de samenvoegen-modal van migreerOudeTabs()
+    await page.waitForTimeout(300);
 
     check("K1. Het eerste oude tabblad wordt het gezinnetje zelf", new URL(page.url()).searchParams.get("lijst") === "oud-tabblad-hoofd");
 

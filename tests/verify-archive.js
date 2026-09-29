@@ -27,16 +27,18 @@ function check(label, cond) {
   if (cond) pass++; else fail++;
 }
 
-async function withDialogQueue(page, answers, fn) {
-  const queue = [...answers];
-  const handler = async (dialog) => {
-    const answer = queue.shift();
-    if (answer === false || answer === undefined) await dialog.dismiss();
-    else if (answer === true) await dialog.accept();
-    else await dialog.accept(answer);
-  };
-  page.on("dialog", handler);
-  try { await fn(); } finally { page.off("dialog", handler); }
+// Modal-helpers: vervangen withDialogQueue nu confirm()/prompt() weg zijn en
+// zijn vervangen door de eigen modals uit dialoog.js.
+async function modalWacht(page) {
+  await page.waitForSelector(".modal-overlay.zichtbaar");
+}
+async function modalBevestig(page) {
+  await modalWacht(page);
+  await page.click(".modal-knoppen .btn-primary, .modal-knoppen .btn-danger");
+}
+async function modalAnnuleer(page) {
+  await modalWacht(page);
+  await page.click(".modal-knoppen .modal-btn-line");
 }
 
 async function openListsPanel(page) {
@@ -143,16 +145,14 @@ async function openListsPanel(page) {
     await page.waitForTimeout(100);
     check("K0b. De gevarenzone klapt open na een tik op de samenvatting", await page.isVisible("#delete-list-btn"));
 
-    await withDialogQueue(page, [false], async () => {
-      await page.click("#delete-list-btn");
-      await page.waitForTimeout(200);
-    });
+    await page.click("#delete-list-btn");
+    await modalAnnuleer(page);
+    await page.waitForTimeout(200);
     check("K1. Annuleren bij de bevestiging verwijdert de lijst niet", (await page.textContent("#list")).includes("Belangrijk itempje"));
 
-    await withDialogQueue(page, [true], async () => {
-      await page.click("#delete-list-btn");
-      await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
-    });
+    await page.click("#delete-list-btn");
+    await modalBevestig(page);
+    await page.waitForURL(/actief=/, { timeout: 3000 }).catch(() => {});
     await page.waitForSelector("#app:not([hidden])");
     check("K2. Na bevestigen schakelt de app naar een nieuw, leeg lijstje (het oude item staat er niet meer)", !(await page.textContent("#list")).includes("Belangrijk itempje"));
 

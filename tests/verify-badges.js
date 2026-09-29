@@ -30,10 +30,12 @@ function check(label, cond) {
 
 async function stelNaamIn(page, naam) {
   await page.evaluate(() => localStorage.setItem("boodschappenlijst:naam", ""));
-  page.once("dialog", (d) => d.accept(naam));
   await page.click("#settings-btn");
   await page.waitForSelector("#settings-panel:not([hidden])");
   await page.click("#name-btn");
+  await page.waitForSelector(".modal-overlay.zichtbaar");
+  await page.fill(".modal-input", naam);
+  await page.click(".modal-knoppen .btn-primary");
   await page.waitForTimeout(80);
 }
 
