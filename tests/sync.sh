@@ -11,14 +11,12 @@ for d in test-run test-unconfigured; do
   sed -E '
     s#https://www\.gstatic\.com/firebasejs/[0-9.]+/firebase-app\.js#./mock-firestore.js#;
     s#https://www\.gstatic\.com/firebasejs/[0-9.]+/firebase-firestore\.js#./mock-firestore.js#;
-    s#https://www\.gstatic\.com/firebasejs/[0-9.]+/firebase-messaging\.js#./mock-messaging.js#;
     s#setTimeout\(askNameIfNeeded, 300\);#/* TEST-ONLY: uitgeschakeld -- deze prompt() kon anders willekeurig tussen test-dialogen door verschijnen en een antwoord voor de verkeerde vraag opeten, wat tests liet vastlopen. */#
   ' "$APP_DIR/app.js" > "$d/app.js"
 
   cp "$APP_DIR/index.html" "$d/index.html"
   cp "$APP_DIR/style.css" "$d/style.css"
   cp mock-firestore.js "$d/mock-firestore.js"
-  cp mock-messaging.js "$d/mock-messaging.js"
 
   # sw.js APP_SHELL noemt manifest.json met naam; zonder dit bestand faalt cache.addAll() (404) en de SW-install.
   [ -f "$APP_DIR/manifest.json" ] && cp "$APP_DIR/manifest.json" "$d/manifest.json"
@@ -45,7 +43,6 @@ const CONFIG = {
     messagingSenderId: "000000000000",
     appId: "1:000000000000:web:0000000000000000000000",
   },
-  vapidKey: "test-vapid-key",
 };
 EOF
 
@@ -60,7 +57,6 @@ const CONFIG = {
     messagingSenderId: "VUL-HIER-IN",
     appId: "VUL-HIER-IN",
   },
-  vapidKey: "VUL-HIER-IN",
 };
 EOF
 

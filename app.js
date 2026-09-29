@@ -9,17 +9,10 @@ import {
   doc,
   getDoc,
   setDoc,
+  deleteDoc,
   onSnapshot,
   runTransaction,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-import {
-  getMessaging,
-  getToken,
-  deleteToken,
-  onMessage,
-  isSupported as pushWordtOndersteund,
-} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging.js";
-
 import { el } from "./dom.js";
 import "./kleur.js";
 import "./compact.js";
@@ -38,6 +31,19 @@ const CLOCK_ICON =
 // voor het definitief weg is.
 const ARCHIVE_DAYS = 30;
 const ARCHIVE_MS = ARCHIVE_DAYS * 24 * 60 * 60 * 1000;
+
+// Vriezer: "ligt al lang"-drempel (per lijst instelbaar, zie l.vriezerDrempelMaanden).
+const MAAND_MS = 30.44 * 24 * 60 * 60 * 1000; // gemiddelde maandlengte, precies genoeg voor deze subtiele markering
+const VRIEZER_DREMPEL_DEFAULT = 3;
+
+// Garantie: wanneer de "verloopt binnenkort"-markering aangaat.
+const GARANTIE_WAARSCHUWING_MS = 30 * 24 * 60 * 60 * 1000;
+
+// Bonnetje-foto's staan niet in het lijstdocument zelf (zou de 1MB Firestore-limiet
+// in gevaar brengen) maar in een eigen collectie, één document per item-id.
+const FOTO_COLLECTIE = "garantiefotos";
+const FOTO_MAX_ZIJDE = 1600; // px, lange zijde
+const FOTO_DOEL_BYTES = 280 * 1024; // richtgetal (150-300KB), iets onder de bovengrens
 
 // state: "neutral" | "saving" | "synced" | "error"
 function setSyncStatus(text, state = "neutral") {
@@ -230,6 +236,16 @@ function start() {
   let settingsOpen = false;
   let listsOpen = false;
 
+  // "Details"-paneel per item (datum/aantal/garantie/foto — zie buildItemRow).
+  let itemDetailsOpen = false;
+  let itemDetailsItemId = null;
+  let itemDetailsFotoUrl = null; // data-URL van de (bestaande of net gekozen) foto, voor de preview
+  let itemDetailsFotoGewijzigd = false; // true zodra de gebruiker een nieuwe foto koos of 'm verwijderde
+
+  // Per-lijst instellingen (vriezer-drempel, sorteren) — welk lijstje staat er
+  // open in het kleine paneeltje onder ⚙ bij ☰ Lijstjes.
+  let lijstInstellingenId = null;
+
   function setListName(name) {
     listName = name && name.trim() ? name.trim() : DEFAULT_LIST_NAME;
     el.listNameEl.textContent = listName;
@@ -261,6 +277,34 @@ function start() {
     return (l.updatedAt || 0) > gezien;
   }
 
+  // Vriezer: is dit item (op basis van item.datum) ouder dan de voor dit
+  // lijstje geldende drempel (standaard 3 maanden, instelbaar per lijst)?
+  function vriezerDrempelVoorLijst(l) {
+    const maanden = l && l.vriezerDrempelMaanden;
+    return (Number.isFinite(maanden) && maanden > 0 ? maanden : VRIEZER_DREMPEL_DEFAULT) * MAAND_MS;
+  }
+
+  function isVriezerOud(item, l) {
+    return !!(item.datum && !item.done && Date.now() - item.datum > vriezerDrempelVoorLijst(l));
+  }
+
+  // Garantie: null (niks aan de hand), "verloopt" (binnen 30 dagen) of "verlopen".
+  function garantieStatus(item) {
+    if (!item.garantieEinde) return null;
+    const resterend = item.garantieEinde - Date.now();
+    if (resterend < 0) return "verlopen";
+    if (resterend <= GARANTIE_WAARSCHUWING_MS) return "verloopt";
+    return null;
+  }
+
+  function heeftGarantieWaarschuwing(l) {
+    return (l.items || []).some((i) => garantieStatus(i) !== null);
+  }
+
+  function korteDatum(ms) {
+    return new Date(ms).toLocaleDateString("nl-NL", { day: "numeric", month: "short" });
+  }
+
   // Volgorde bepaalt welke lijstjes als tabblad staan (zie renderTabs()) en welke alleen in het ☰-paneel.
   function moveList(id, direction) {
     const myIndex = volgorde.indexOf(id);
@@ -290,6 +334,7 @@ function start() {
     // archiveOpen bewust niet resetten: archief is een centrale weergave over alle lijstjes.
     settingsOpen = false;
     listsOpen = false;
+    itemDetailsOpen = false;
     updateDeletedView();
     render();
     renderArchive();
@@ -704,9 +749,6 @@ function start() {
           archivedLijsten: merged.archivedLijsten,
           tombstones: merged.tombstones,
           updatedAt: Date.now(),
-          // Welk toestel dit schreef, zodat de Cloud Function (functions/index.js)
-          // dat ene toestel overslaat bij het sturen van een pushmelding.
-          laatsteSchrijver: huidigPushToken() || null,
         });
       });
       // Bewust niet "householdLijsten" hier gelijkzetten aan wat net is
@@ -768,9 +810,17 @@ function start() {
     return householdArchivedLijsten.length !== beforeLijsten || householdTombstones.length !== beforeTombstones;
   }
 
+  // Bonnetje-foto pas écht weggooien zodra het item ook écht (definitief) weg is
+  // — niet al bij het gewone "✕ Verwijderen", dat is nog 30 dagen terug te draaien.
+  function verwijderFotoAlsAanwezig(item) {
+    if (!item || !item.heeftFoto) return;
+    deleteDoc(doc(db, FOTO_COLLECTIE, item.id)).catch((e) => console.warn("Foto opruimen mislukt:", e));
+  }
+
   function purgeExpiredArchive() {
     const cutoff = Date.now() - ARCHIVE_MS;
     const before = archivedItems.length;
+    archivedItems.filter((i) => i.deletedAt <= cutoff).forEach(verwijderFotoAlsAanwezig);
     archivedItems = archivedItems.filter((i) => i.deletedAt > cutoff);
     return archivedItems.length !== before;
   }
@@ -845,7 +895,8 @@ function start() {
   function permanentlyDeleteItem(id) {
     const idx = archivedItems.findIndex((i) => i.id === id);
     if (idx === -1) return;
-    archivedItems.splice(idx, 1);
+    const [item] = archivedItems.splice(idx, 1);
+    verwijderFotoAlsAanwezig(item);
     renderArchive();
     scheduleSave();
   }
@@ -894,27 +945,11 @@ function start() {
   }
 
   function updateDeletedView() {
-    if (archiveOpen) {
-      el.app.hidden = true;
-      el.archivePanel.hidden = false;
-      if (el.settingsPanel) el.settingsPanel.hidden = true;
-      if (el.listsPanel) el.listsPanel.hidden = true;
-    } else if (settingsOpen) {
-      el.app.hidden = true;
-      el.archivePanel.hidden = true;
-      if (el.settingsPanel) el.settingsPanel.hidden = false;
-      if (el.listsPanel) el.listsPanel.hidden = true;
-    } else if (listsOpen) {
-      el.app.hidden = true;
-      el.archivePanel.hidden = true;
-      if (el.settingsPanel) el.settingsPanel.hidden = true;
-      if (el.listsPanel) el.listsPanel.hidden = false;
-    } else {
-      el.app.hidden = false;
-      el.archivePanel.hidden = true;
-      if (el.settingsPanel) el.settingsPanel.hidden = true;
-      if (el.listsPanel) el.listsPanel.hidden = true;
-    }
+    el.app.hidden = archiveOpen || settingsOpen || listsOpen || itemDetailsOpen;
+    el.archivePanel.hidden = !archiveOpen;
+    if (el.settingsPanel) el.settingsPanel.hidden = !settingsOpen;
+    if (el.listsPanel) el.listsPanel.hidden = !listsOpen;
+    if (el.itemDetailsPanel) el.itemDetailsPanel.hidden = !itemDetailsOpen;
   }
 
   if (el.archiveBtn) {
@@ -922,6 +957,7 @@ function start() {
       archiveOpen = true;
       settingsOpen = false;
       listsOpen = false;
+      itemDetailsOpen = false;
       renderArchive();
       updateDeletedView();
     });
@@ -939,6 +975,7 @@ function start() {
       settingsOpen = true;
       archiveOpen = false;
       listsOpen = false;
+      itemDetailsOpen = false;
       updateNameBtn();
       renderBadgeKleurPicker();
       updateDeletedView();
@@ -1355,6 +1392,27 @@ function start() {
     return (prive ? priveLijsten : householdLijsten).find((l) => l.id === lijstId) || null;
   }
 
+  // Wijzigt een instelling die op het lijstje zelf staat (vriezer-drempel,
+  // sorteren) — werkt voor zowel de actieve als een ander lijstje.
+  function updateLijstInstelling(lijstId, prive, wijzig) {
+    if (lijstId === activeId) {
+      const entry = prive
+        ? priveLijsten.find((l) => l.id === lijstId)
+        : householdLijsten.find((l) => l.id === lijstId);
+      if (entry) wijzig(entry);
+      render();
+      scheduleSave();
+    } else {
+      const entry = echteLijst(lijstId, prive);
+      if (!entry) return;
+      wijzig(entry);
+      entry.updatedAt = Date.now();
+      if (prive) savePrive();
+      else saveHousehold();
+    }
+    renderTabsAndPanel();
+  }
+
   // Gearchiveerde items van alle lijstjes voor de centrale archiefweergave; voor
   // de actieve lijst de live werkvariabelen (verser dan householdLijsten/priveLijsten).
   function alleGearchiveerdeItems() {
@@ -1400,7 +1458,8 @@ function start() {
     if (!l) return;
     const idx = (l.archivedItems || []).findIndex((i) => i.id === itemId);
     if (idx === -1) return;
-    l.archivedItems.splice(idx, 1);
+    const [item] = l.archivedItems.splice(idx, 1);
+    verwijderFotoAlsAanwezig(item);
     renderArchive();
     if (prive) savePrive();
     else await saveHousehold();
@@ -1682,6 +1741,17 @@ function start() {
     });
     menu.append(bewerkBtn);
 
+    const detailsBtn = document.createElement("button");
+    detailsBtn.type = "button";
+    detailsBtn.className = "details-btn";
+    detailsBtn.textContent = "📋 Details";
+    detailsBtn.setAttribute("aria-label", `Details van ${item.text} (datum, aantal, garantie, foto)`);
+    detailsBtn.addEventListener("click", () => {
+      openItemMenuId = null;
+      openItemDetails(item.id);
+    });
+    menu.append(detailsBtn);
+
     const del = document.createElement("button");
     del.type = "button";
     del.className = "delete-btn";
@@ -1736,6 +1806,104 @@ function start() {
       li.append(stale);
     }
 
+    // Vriezer: compacte "3× · 12 aug" met de telling direct aanpasbaar, en
+    // (indien van toepassing) de "ligt hier al lang"-markering op basis van item.datum.
+    if (item.aantal != null || item.datum) {
+      const vriezerInfo = document.createElement("div");
+      vriezerInfo.className = "item-vriezer-info";
+
+      if (item.aantal != null) {
+        const stepper = document.createElement("span");
+        stepper.className = "aantal-stepper";
+
+        const minBtn = document.createElement("button");
+        minBtn.type = "button";
+        minBtn.className = "aantal-btn";
+        minBtn.textContent = "−";
+        minBtn.setAttribute("aria-label", `Eén afhalen van het aantal voor ${item.text}`);
+        minBtn.addEventListener("click", () => {
+          const was = item.aantal;
+          item.aantal = Math.max(0, item.aantal - 1);
+          render();
+          scheduleSave();
+          if (was > 0 && item.aantal === 0) {
+            showToast(`"${item.text}" is op — afvinken?`, () => {
+              item.done = true;
+              if (getMyName()) item.doneBy = getMyName();
+              delete item.bezig;
+              delete item.bezigNotitie;
+              delete item.bezigDoor;
+              render();
+              scheduleSave();
+            }, "Afvinken");
+          }
+        });
+
+        const getal = document.createElement("span");
+        getal.className = "aantal-getal";
+        getal.textContent = `${item.aantal}×`;
+
+        const plusBtn = document.createElement("button");
+        plusBtn.type = "button";
+        plusBtn.className = "aantal-btn";
+        plusBtn.textContent = "+";
+        plusBtn.setAttribute("aria-label", `Eén erbij op het aantal voor ${item.text}`);
+        plusBtn.addEventListener("click", () => {
+          item.aantal = (item.aantal || 0) + 1;
+          render();
+          scheduleSave();
+        });
+
+        stepper.append(minBtn, getal, plusBtn);
+        vriezerInfo.append(stepper);
+      }
+
+      if (item.datum) {
+        const datumEl = document.createElement("span");
+        datumEl.className = "vriezer-datum";
+        datumEl.textContent = korteDatum(item.datum);
+        vriezerInfo.append(datumEl);
+
+        if (isVriezerOud(item, findList(activeId))) {
+          const oudBadge = document.createElement("span");
+          oudBadge.className = "vriezer-oud-badge";
+          oudBadge.textContent = "ligt al lang";
+          vriezerInfo.append(oudBadge);
+        }
+      }
+
+      li.append(vriezerInfo);
+    }
+
+    // Garantie: verloopt-binnenkort/verlopen-markering + fotoseintje.
+    const garantie = garantieStatus(item);
+    if (garantie || item.heeftFoto) {
+      const garantieInfo = document.createElement("div");
+      garantieInfo.className = "item-garantie-info";
+
+      if (garantie === "verloopt") {
+        const badge = document.createElement("span");
+        badge.className = "garantie-badge garantie-verloopt";
+        badge.textContent = "Garantie verloopt binnen 30 dagen";
+        garantieInfo.append(badge);
+      } else if (garantie === "verlopen") {
+        const badge = document.createElement("span");
+        badge.className = "garantie-badge garantie-verlopen";
+        badge.textContent = "Garantie verlopen";
+        garantieInfo.append(badge);
+      }
+
+      if (item.heeftFoto) {
+        const fotoSeintje = document.createElement("span");
+        fotoSeintje.className = "garantie-foto-seintje";
+        fotoSeintje.textContent = "📷";
+        fotoSeintje.title = "Er staat een foto bij dit item (zie Details)";
+        garantieInfo.append(fotoSeintje);
+      }
+
+      li.append(garantieInfo);
+    }
+
     return li;
   }
 
@@ -1761,6 +1929,13 @@ function start() {
     const done = bronItems.filter((i) => i.done);
     const pinnedActive = active.filter((i) => i.pinned);
     const normalActive = active.filter((i) => !i.pinned);
+
+    // Vriezer: optioneel per lijst op datum sorteren (oudste eerst); items
+    // zonder datum blijven onderaan, in hun eigen onderlinge volgorde (stabiele sort).
+    const huidigeLijstVoorSortering = findList(activeId);
+    if (huidigeLijstVoorSortering && huidigeLijstVoorSortering.sorteerOpDatum) {
+      normalActive.sort((a, b) => (a.datum || Infinity) - (b.datum || Infinity));
+    }
 
     if (pinnedActive.length > 0) {
       const pinHeader = document.createElement("li");
@@ -1806,7 +1981,12 @@ function start() {
   }
 
   function labelFor(l) {
-    return (l.prive ? "🔒 " : "") + (l.naam || "Lijst") + (heeftIetsNieuws(l) ? " •" : "");
+    return (
+      (l.prive ? "🔒 " : "") +
+      (l.naam || "Lijst") +
+      (heeftIetsNieuws(l) ? " •" : "") +
+      (heeftGarantieWaarschuwing(l) ? " ⚠️" : "")
+    );
   }
 
   function tabIds() {
@@ -1838,10 +2018,11 @@ function start() {
       tab.addEventListener("click", () => {
         if (id !== activeId) {
           switchToList(id);
-        } else if (archiveOpen || settingsOpen || listsOpen) {
+        } else if (archiveOpen || settingsOpen || listsOpen || itemDetailsOpen) {
           archiveOpen = false;
           settingsOpen = false;
           listsOpen = false;
+          itemDetailsOpen = false;
           updateDeletedView();
         }
       });
@@ -1860,6 +2041,7 @@ function start() {
       listsOpen = true;
       archiveOpen = false;
       settingsOpen = false;
+      itemDetailsOpen = false;
       renderTabsAndPanel();
       updateDeletedView();
     });
@@ -1939,7 +2121,18 @@ function start() {
         ? "Staat als tabblad bovenin"
         : "Staat niet als tabblad bovenin — verschuif naar boven met ↑ om dat te veranderen";
 
-      li.append(switchBtn, moveWrap, tabBadge);
+      const gearBtn = document.createElement("button");
+      gearBtn.type = "button";
+      gearBtn.className = "btn-icon lists-panel-gear" + (lijstInstellingenId === id ? " active" : "");
+      gearBtn.textContent = "⚙";
+      gearBtn.title = "Instellingen voor dit lijstje (vriezer-drempel, sorteren op datum)";
+      gearBtn.setAttribute("aria-label", `Instellingen voor ${l.naam || "Lijst"}`);
+      gearBtn.addEventListener("click", () => {
+        lijstInstellingenId = lijstInstellingenId === id ? null : id;
+        renderListsPanel();
+      });
+
+      li.append(switchBtn, moveWrap, tabBadge, gearBtn);
 
       if (!l.prive) {
         const hideBtn = document.createElement("button");
@@ -1953,6 +2146,43 @@ function start() {
       }
 
       el.listsPanelList.appendChild(li);
+
+      if (lijstInstellingenId === id) {
+        const instellingenLi = document.createElement("li");
+        instellingenLi.className = "lists-panel-instellingen";
+
+        const drempelLabel = document.createElement("label");
+        drempelLabel.className = "lijst-instelling-veld";
+        drempelLabel.append('"Ligt al lang" vanaf ');
+        const drempelInput = document.createElement("input");
+        drempelInput.type = "number";
+        drempelInput.min = "1";
+        drempelInput.className = "lijst-drempel-input";
+        drempelInput.value = l.vriezerDrempelMaanden || VRIEZER_DREMPEL_DEFAULT;
+        drempelInput.setAttribute("aria-label", `Drempel in maanden voor "ligt al lang" bij ${l.naam || "Lijst"}`);
+        drempelInput.addEventListener("change", () => {
+          const nieuw = parseInt(drempelInput.value, 10);
+          const waarde = Number.isFinite(nieuw) && nieuw >= 1 ? nieuw : VRIEZER_DREMPEL_DEFAULT;
+          drempelInput.value = waarde;
+          updateLijstInstelling(id, l.prive, (entry) => { entry.vriezerDrempelMaanden = waarde; });
+        });
+        drempelLabel.append(drempelInput, " maanden oud");
+
+        const sorteerLabel = document.createElement("label");
+        sorteerLabel.className = "lijst-instelling-veld";
+        const sorteerCheckbox = document.createElement("input");
+        sorteerCheckbox.type = "checkbox";
+        sorteerCheckbox.className = "lijst-sorteer-checkbox";
+        sorteerCheckbox.checked = !!l.sorteerOpDatum;
+        sorteerCheckbox.setAttribute("aria-label", `Sorteer "${l.naam || "Lijst"}" op datum, oudste eerst`);
+        sorteerCheckbox.addEventListener("change", () => {
+          updateLijstInstelling(id, l.prive, (entry) => { entry.sorteerOpDatum = sorteerCheckbox.checked; });
+        });
+        sorteerLabel.append(sorteerCheckbox, " Sorteer op datum (oudste eerst)");
+
+        instellingenLi.append(drempelLabel, sorteerLabel);
+        el.listsPanelList.appendChild(instellingenLi);
+      }
     });
 
     if (el.listsPanelArchived) {
@@ -2022,6 +2252,257 @@ function start() {
     }
   }
 
+  // --- "Details"-paneel per item: datum/aantal (vriezer) + garantie/bonnetje ---
+
+  function huidigItemDetails() {
+    return items.find((i) => i.id === itemDetailsItemId) || null;
+  }
+
+  function openItemDetails(itemId) {
+    itemDetailsItemId = itemId;
+    itemDetailsOpen = true;
+    itemDetailsFotoUrl = null;
+    itemDetailsFotoGewijzigd = false;
+    archiveOpen = false;
+    settingsOpen = false;
+    listsOpen = false;
+    updateDeletedView();
+    renderItemDetails();
+    const item = huidigItemDetails();
+    if (item && item.heeftFoto) laadItemFoto(itemId);
+  }
+
+  function closeItemDetails() {
+    itemDetailsOpen = false;
+    itemDetailsItemId = null;
+    updateDeletedView();
+    render();
+    renderTabsAndPanel(); // garantie-velden kunnen de ⚠️ bij het lijstje aan/uit zetten
+  }
+
+  function datumVoorInvoerveld(ms) {
+    if (!ms) return "";
+    const d = new Date(ms);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  function datumVanInvoerveld(str) {
+    if (!str) return null;
+    const d = new Date(str + "T00:00:00");
+    return Number.isNaN(d.getTime()) ? null : d.getTime();
+  }
+
+  function renderItemDetails() {
+    const item = huidigItemDetails();
+    if (!el.itemDetailsPanel || !item) return;
+    if (el.itemDetailsTitel) el.itemDetailsTitel.textContent = item.text;
+
+    if (el.detailsDatumInput) el.detailsDatumInput.value = datumVoorInvoerveld(item.datum);
+    if (el.detailsAantalInput) el.detailsAantalInput.value = item.aantal != null ? item.aantal : "";
+    if (el.detailsAankoopdatumInput) el.detailsAankoopdatumInput.value = datumVoorInvoerveld(item.aankoopdatum);
+    if (el.detailsWinkelInput) el.detailsWinkelInput.value = item.winkel || "";
+    if (el.detailsPrijsInput) el.detailsPrijsInput.value = item.prijs != null ? item.prijs : "";
+    if (el.detailsGarantieEindeInput) el.detailsGarantieEindeInput.value = datumVoorInvoerveld(item.garantieEinde);
+
+    renderItemDetailsFoto();
+  }
+
+  function renderItemDetailsFoto() {
+    const item = huidigItemDetails();
+    if (!el.detailsFotoPreview) return;
+    el.detailsFotoPreview.innerHTML = "";
+
+    if (itemDetailsFotoGewijzigd && !itemDetailsFotoUrl) {
+      // Gebruiker heeft de foto net verwijderd.
+      el.detailsFotoPreview.hidden = true;
+      if (el.detailsFotoVerwijderBtn) el.detailsFotoVerwijderBtn.hidden = true;
+      return;
+    }
+
+    if (itemDetailsFotoUrl) {
+      const img = document.createElement("img");
+      img.src = itemDetailsFotoUrl;
+      img.className = "details-foto-img";
+      img.alt = "Foto van het bonnetje";
+      img.addEventListener("click", () => toonFotoVolledigScherm(itemDetailsFotoUrl));
+      el.detailsFotoPreview.appendChild(img);
+      el.detailsFotoPreview.hidden = false;
+      if (el.detailsFotoVerwijderBtn) el.detailsFotoVerwijderBtn.hidden = false;
+    } else if (item && item.heeftFoto) {
+      const p = document.createElement("p");
+      p.className = "hint";
+      p.textContent = "Foto laden...";
+      el.detailsFotoPreview.appendChild(p);
+      el.detailsFotoPreview.hidden = false;
+      if (el.detailsFotoVerwijderBtn) el.detailsFotoVerwijderBtn.hidden = true;
+    } else {
+      el.detailsFotoPreview.hidden = true;
+      if (el.detailsFotoVerwijderBtn) el.detailsFotoVerwijderBtn.hidden = true;
+    }
+  }
+
+  async function laadItemFoto(itemId) {
+    try {
+      const snap = await getDoc(doc(db, FOTO_COLLECTIE, itemId));
+      if (itemDetailsItemId !== itemId) return; // paneel is intussen gesloten of gewisseld van item
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && data.dataUrl) itemDetailsFotoUrl = data.dataUrl;
+      }
+    } catch (e) {
+      console.warn("Foto laden mislukt:", e);
+    }
+    if (itemDetailsItemId === itemId) renderItemDetailsFoto();
+  }
+
+  function toonFotoVolledigScherm(url) {
+    const overlay = document.createElement("div");
+    overlay.className = "foto-fullscreen-overlay";
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = "Foto van het bonnetje, volledig scherm";
+    overlay.append(img);
+    overlay.addEventListener("click", () => overlay.remove());
+    document.body.appendChild(overlay);
+  }
+
+  // Verkleint een gekozen foto client-side naar hooguit 1600px lange zijde en
+  // comprimeert 'm als JPEG richting FOTO_DOEL_BYTES, als data-URL (klaar om
+  // direct in Firestore te zetten — geen aparte Storage-bucket nodig).
+  function verwerkFotoBestand(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        const schaal = Math.min(1, FOTO_MAX_ZIJDE / Math.max(width, height));
+        width = Math.round(width * schaal);
+        height = Math.round(height * schaal);
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+
+        let kwaliteit = 0.82;
+        let dataUrl = canvas.toDataURL("image/jpeg", kwaliteit);
+        while (dataUrl.length * 0.75 > FOTO_DOEL_BYTES && kwaliteit > 0.35) {
+          kwaliteit -= 0.1;
+          dataUrl = canvas.toDataURL("image/jpeg", kwaliteit);
+        }
+        resolve(dataUrl);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Kon de foto niet laden"));
+      };
+      img.src = url;
+    });
+  }
+
+  if (el.detailsFotoInput) {
+    el.detailsFotoInput.addEventListener("change", async () => {
+      const file = el.detailsFotoInput.files && el.detailsFotoInput.files[0];
+      el.detailsFotoInput.value = "";
+      if (!file) return;
+      try {
+        itemDetailsFotoUrl = await verwerkFotoBestand(file);
+        itemDetailsFotoGewijzigd = true;
+        renderItemDetailsFoto();
+      } catch (e) {
+        alert("Kon deze foto niet verwerken. Probeer een andere foto.");
+      }
+    });
+  }
+
+  if (el.detailsFotoVerwijderBtn) {
+    el.detailsFotoVerwijderBtn.addEventListener("click", () => {
+      itemDetailsFotoUrl = null;
+      itemDetailsFotoGewijzigd = true;
+      renderItemDetailsFoto();
+    });
+  }
+
+  // Snelkeuze garantie-einddatum: 1/2/3/5 jaar vanaf de aankoopdatum (of vandaag als die leeg is).
+  document.querySelectorAll(".garantie-snelkeuze-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const jaren = parseInt(btn.dataset.jaren, 10);
+      if (!Number.isFinite(jaren)) return;
+      const basisStr = el.detailsAankoopdatumInput ? el.detailsAankoopdatumInput.value : "";
+      const basis = basisStr ? datumVanInvoerveld(basisStr) : Date.now();
+      const d = new Date(basis || Date.now());
+      d.setFullYear(d.getFullYear() + jaren);
+      if (el.detailsGarantieEindeInput) el.detailsGarantieEindeInput.value = datumVoorInvoerveld(d.getTime());
+    });
+  });
+
+  async function opslaanItemDetails() {
+    const item = huidigItemDetails();
+    if (!item) {
+      closeItemDetails();
+      return;
+    }
+
+    const datum = el.detailsDatumInput ? datumVanInvoerveld(el.detailsDatumInput.value) : null;
+    if (datum) item.datum = datum;
+    else delete item.datum;
+
+    const aantalRuw = el.detailsAantalInput ? el.detailsAantalInput.value : "";
+    const aantal = aantalRuw !== "" ? parseInt(aantalRuw, 10) : null;
+    if (aantal !== null && Number.isFinite(aantal)) item.aantal = Math.max(0, aantal);
+    else delete item.aantal;
+
+    const aankoopdatum = el.detailsAankoopdatumInput ? datumVanInvoerveld(el.detailsAankoopdatumInput.value) : null;
+    if (aankoopdatum) item.aankoopdatum = aankoopdatum;
+    else delete item.aankoopdatum;
+
+    const winkel = el.detailsWinkelInput ? el.detailsWinkelInput.value.trim() : "";
+    if (winkel) item.winkel = winkel;
+    else delete item.winkel;
+
+    const prijsRuw = el.detailsPrijsInput ? el.detailsPrijsInput.value : "";
+    const prijs = prijsRuw !== "" ? parseFloat(prijsRuw.replace(",", ".")) : null;
+    if (prijs !== null && Number.isFinite(prijs)) item.prijs = prijs;
+    else delete item.prijs;
+
+    const garantieEinde = el.detailsGarantieEindeInput ? datumVanInvoerveld(el.detailsGarantieEindeInput.value) : null;
+    if (garantieEinde) item.garantieEinde = garantieEinde;
+    else delete item.garantieEinde;
+
+    if (itemDetailsFotoGewijzigd) {
+      if (itemDetailsFotoUrl) {
+        try {
+          await setDoc(doc(db, FOTO_COLLECTIE, item.id), { dataUrl: itemDetailsFotoUrl, updatedAt: Date.now() });
+          item.heeftFoto = true;
+        } catch (e) {
+          alert("Foto opslaan is niet gelukt (mogelijk geen internet). De rest van de details is wel opgeslagen.");
+        }
+      } else if (item.heeftFoto) {
+        try {
+          await deleteDoc(doc(db, FOTO_COLLECTIE, item.id));
+        } catch (e) {
+          console.warn("Foto verwijderen mislukt:", e);
+        }
+        delete item.heeftFoto;
+      }
+    }
+
+    scheduleSave();
+    closeItemDetails();
+  }
+
+  if (el.itemDetailsForm) {
+    el.itemDetailsForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      opslaanItemDetails();
+    });
+  }
+
+  if (el.itemDetailsCloseBtn) {
+    el.itemDetailsCloseBtn.addEventListener("click", () => closeItemDetails());
+  }
+
   el.addForm.addEventListener("submit", (e) => {
     e.preventDefault();
     const text = el.newItem.value.trim();
@@ -2061,103 +2542,6 @@ function start() {
     }
   });
 
-  // Pushmeldingen: werken ook als de app niet open is, per toestel via een
-  // token in het gezinsdocument; de Cloud Function (functions/index.js,
-  // apart deployen — zie README.md) stuurt de melding naar alle toestellen.
-  const PUSH_TOKEN_KEY = "boodschappenlijst:push-token";
-
-  function huidigPushToken() {
-    try { return localStorage.getItem(PUSH_TOKEN_KEY); } catch (e) { return null; }
-  }
-
-  function bewaarPushToken(token) {
-    try {
-      if (token) localStorage.setItem(PUSH_TOKEN_KEY, token);
-      else localStorage.removeItem(PUSH_TOKEN_KEY);
-    } catch (e) { /* niet erg, dan onthoudt dit toestel het gewoon niet */ }
-  }
-
-  function updatePushKnop() {
-    if (!el.pushBtn) return;
-    const aan = !!huidigPushToken();
-    el.pushBtn.textContent = `Pushmeldingen: ${aan ? "aan" : "uit"}`;
-    el.pushBtn.classList.toggle("active", aan);
-  }
-
-  // Eigen kleine transactie, los van de lijst-opslag.
-  async function voegPushTokenToe(token) {
-    await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(householdRef);
-      const server = snap.exists() ? snap.data() : {};
-      const zonderDitToken = (server.pushTokens || []).filter((t) => t.token !== token);
-      zonderDitToken.push({ token, bijgewerktOp: Date.now() });
-      transaction.set(householdRef, { ...server, pushTokens: zonderDitToken });
-    });
-  }
-
-  async function verwijderPushToken(token) {
-    await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(householdRef);
-      const server = snap.exists() ? snap.data() : {};
-      const zonderDitToken = (server.pushTokens || []).filter((t) => t.token !== token);
-      transaction.set(householdRef, { ...server, pushTokens: zonderDitToken });
-    });
-  }
-
-  async function zetPushMeldingenAan() {
-    try {
-      const permissie = await Notification.requestPermission();
-      if (permissie !== "granted") {
-        alert("Zonder toestemming voor meldingen kan dit toestel geen pushmeldingen krijgen. Je kunt dit later alsnog toestaan via de site-instellingen van je browser.");
-        return;
-      }
-      const swRegistratie = await navigator.serviceWorker.ready;
-      const messaging = getMessaging(firebaseApp);
-      const token = await getToken(messaging, {
-        vapidKey: CONFIG.vapidKey,
-        serviceWorkerRegistration: swRegistratie,
-      });
-      if (!token) {
-        alert("Kon geen pushmeldingen-token krijgen. Probeer het later nog eens.");
-        return;
-      }
-      await voegPushTokenToe(token);
-      bewaarPushToken(token);
-      updatePushKnop();
-      // Meldingen terwijl de app open is komen hier binnen i.p.v. als systeemmelding.
-      onMessage(messaging, (payload) => {
-        showToast((payload.notification && payload.notification.body) || "Er is iets nieuws toegevoegd");
-      });
-    } catch (e) {
-      console.error("Pushmeldingen aanzetten is niet gelukt:", e);
-      alert("Pushmeldingen aanzetten is niet gelukt. Zie de console voor details.");
-    }
-  }
-
-  async function zetPushMeldingenUit() {
-    const token = huidigPushToken();
-    try {
-      const messaging = getMessaging(firebaseApp);
-      if (token) await deleteToken(messaging).catch(() => {});
-      if (token) await verwijderPushToken(token);
-    } catch (e) {
-      console.error("Pushmeldingen uitzetten ging niet helemaal goed (lokaal wel uitgezet):", e);
-    }
-    bewaarPushToken(null);
-    updatePushKnop();
-  }
-
-  if (el.pushSection && CONFIG.vapidKey && CONFIG.vapidKey !== "VUL-HIER-IN") {
-    pushWordtOndersteund().then((ondersteund) => {
-      if (!ondersteund) return; // bijv. Firefox/Safari op iPhone
-      el.pushSection.hidden = false;
-      updatePushKnop();
-      el.pushBtn.addEventListener("click", () => {
-        if (huidigPushToken()) zetPushMeldingenUit();
-        else zetPushMeldingenAan();
-      });
-    });
-  }
 }
 
 // --- Service worker (PWA) ---

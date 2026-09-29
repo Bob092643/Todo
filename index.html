@@ -135,14 +135,6 @@
       </div>
     </div>
 
-    <div class="settings-section" id="push-section" hidden>
-      <p class="settings-section-title">🔔 Pushmeldingen</p>
-      <p class="settings-section-hint" id="push-hint">Krijg een melding op dit toestel zodra iemand anders iets toevoegt aan een gedeeld lijstje.</p>
-      <div class="settings-section-actions">
-        <button id="push-btn" class="btn btn-ghost btn-small" type="button">Pushmeldingen: uit</button>
-      </div>
-    </div>
-
     <div class="settings-section">
       <details class="info-toggle">
         <summary class="info-toggle-summary"><span class="info-toggle-chevron">▸</span> Uitleg app</summary>
@@ -152,13 +144,14 @@
             <li><strong>✅ Afvinken</strong> — klaar? Vink het aan. Per ongeluk? Vink het weer uit, of gebruik het "Ongedaan maken"-knopje dat even in beeld komt.</li>
             <li><strong>✕ Verwijderen</strong> — het item gaat 30 dagen naar het archief (🗄️-knop hierboven), waar je het nog kunt terugzetten of meteen definitief kunt verwijderen. Dat archief is trouwens centraal: je ziet daar verwijderde items van al je lijstjes bij elkaar, met een tagje erbij uit welk lijstje.</li>
             <li><strong>⠿ Volgorde</strong> — pak een openstaand item vast bij het handvatje en sleep het naar de gewenste plek (met muis of vinger), of gebruik ↑/↓ achter het ⋯-knopje.</li>
-            <li><strong>⋯ Meer acties</strong> — vastpinnen, omhoog/omlaag verplaatsen, "bezig" zetten, favoriet maken en verwijderen zitten achter dit knopje bij elk item.</li>
+            <li><strong>⋯ Meer acties</strong> — vastpinnen, omhoog/omlaag verplaatsen, "bezig" zetten, favoriet maken, details en verwijderen zitten achter dit knopje bij elk item.</li>
             <li><strong>📌 Vastpinnen</strong> — houdt een belangrijk item altijd bovenaan, ongeacht de volgorde.</li>
             <li><strong>🕐 Bezig</strong> — laat zien dat iemand hier al mee bezig is (bijv. al gebeld, maar nog geen reactie), los van het vinkje. Mag met een kort notitietje; laat je dat leeg, dan staat gewoon jouw naam erbij. Verdwijnt vanzelf zodra het item wordt afgevinkt.</li>
             <li><strong>★ Favoriet</strong> — zet een item op je vaste "Snel toevoegen"-rijtje boven de lijst, ook nadat je 'm hebt afgevinkt en verwijderd. Items die je vaak genoeg toevoegt, verschijnen daar trouwens ook vanzelf bij, zonder dat je ze apart hoeft te markeren.</li>
+            <li><strong>📋 Details</strong> — optionele extra's per item, allemaal via "⋯ → Details": een datum + aantal (handig voor bijv. een vriezerlijstje — het aantal is direct met −/+ aan te passen op het item zelf, en op 0 krijg je een voorstel om af te vinken), en aankoopgegevens + garantie-einddatum + een foto van het bonnetje. Een item met een datum die er (per lijst instelbaar, standaard 3 maanden) al lang ligt krijgt een subtiel seintje; een garantie die binnen 30 dagen verloopt of al verlopen is, ook (zowel op het item als met een ⚠️ bij het lijstje in ☰ Lijstjes).</li>
             <li><strong>🔍 Zoeken</strong> — verschijnt vanaf 7 items in je lijstje (instelbaar bij ⚙️ Instellingen); filtert op alles, ook afgevinkte items.</li>
             <li><strong>Wis alles</strong> — bij "Afgerond" alle afgevinkte items in één keer opruimen, i.p.v. één voor één.</li>
-            <li><strong>☰ Lijstjes</strong> — al je lijstjes (gedeeld en privé); de bovenste (in de volgorde die jij zelf per toestel instelt) staan als tabblad bovenin — hoeveel dat er zijn hangt af van je schermbreedte —, de rest vind je hier.</li>
+            <li><strong>☰ Lijstjes</strong> — al je lijstjes (gedeeld en privé); de bovenste (in de volgorde die jij zelf per toestel instelt) staan als tabblad bovenin — hoeveel dat er zijn hangt af van je schermbreedte —, de rest vind je hier. Met het ⚙-knopje per lijstje stel je de "ligt al lang"-drempel in en kun je op datum laten sorteren (oudste eerst).</li>
             <li><strong>Verbergen</strong> — een gedeeld lijstje op dit toestel uit beeld halen. Het lijstje zelf blijft gewoon bestaan (anderen met de code kunnen er nog steeds bij); je vindt 'm terug onderaan ☰ Lijstjes, bij "Verborgen op dit toestel", om 'm weer te laten zien.</li>
             <li><strong>Delen</strong> — stuurt de link waarmee anderen ook bij dit gedeelde lijstje kunnen (kan niet voor een privé lijstje).</li>
             <li><strong>Code (onderin)</strong> — een kort stukje van de gezinscode. Handig om samen te controleren of twee toestellen echt naar hetzelfde gezinnetje wijzen.</li>
@@ -191,6 +184,73 @@
       Niks gevonden <span id="zoek-geen-resultaten-term"></span>
     </div>
   </main>
+
+  <div id="item-details-panel" class="archive-panel" hidden>
+    <div class="archive-panel-header">
+      <h2>Details — <span id="item-details-titel"></span></h2>
+      <button id="item-details-close-btn" class="btn-icon" type="button" title="Sluiten">✕</button>
+    </div>
+    <p class="archive-panel-hint">Alle velden hier zijn optioneel — vul alleen in wat voor dit item handig is. Denk aan een datum + aantal voor iets in de vriezer, of aankoopgegevens + bonnetje voor garantie.</p>
+
+    <form id="item-details-form">
+      <div class="settings-section">
+        <p class="settings-section-title">🧊 Datum en aantal</p>
+        <div class="details-form-row">
+          <label class="details-form-veld">
+            Datum
+            <input id="details-datum-input" type="date" />
+          </label>
+          <label class="details-form-veld">
+            Aantal
+            <input id="details-aantal-input" type="number" min="0" />
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <p class="settings-section-title">🧾 Garantie en bonnetje</p>
+        <div class="details-form-row">
+          <label class="details-form-veld">
+            Aankoopdatum
+            <input id="details-aankoopdatum-input" type="date" />
+          </label>
+          <label class="details-form-veld">
+            Winkel
+            <input id="details-winkel-input" type="text" autocomplete="off" />
+          </label>
+        </div>
+        <div class="details-form-row">
+          <label class="details-form-veld">
+            Prijs (€)
+            <input id="details-prijs-input" type="number" min="0" step="0.01" inputmode="decimal" />
+          </label>
+          <label class="details-form-veld">
+            Garantie tot
+            <input id="details-garantie-einde-input" type="date" />
+          </label>
+        </div>
+        <div class="settings-section-actions">
+          <button type="button" class="btn btn-ghost btn-small garantie-snelkeuze-btn" data-jaren="1">+1 jaar</button>
+          <button type="button" class="btn btn-ghost btn-small garantie-snelkeuze-btn" data-jaren="2">+2 jaar</button>
+          <button type="button" class="btn btn-ghost btn-small garantie-snelkeuze-btn" data-jaren="3">+3 jaar</button>
+          <button type="button" class="btn btn-ghost btn-small garantie-snelkeuze-btn" data-jaren="5">+5 jaar</button>
+        </div>
+
+        <div class="settings-section-actions" style="margin-top: 14px;">
+          <label id="details-foto-label" for="details-foto-input" class="btn btn-ghost btn-small color-btn-label">
+            📷 Foto maken of kiezen
+          </label>
+          <input id="details-foto-input" type="file" accept="image/*" class="visually-hidden" />
+          <button id="details-foto-verwijder-btn" class="btn btn-ghost btn-small" type="button" hidden>Foto verwijderen</button>
+        </div>
+        <div id="details-foto-preview" class="details-foto-preview" hidden></div>
+      </div>
+
+      <div class="settings-section-actions">
+        <button id="item-details-submit-btn" type="submit" class="btn btn-primary btn-small">Opslaan</button>
+      </div>
+    </form>
+  </div>
 
   <p id="config-hint" class="hint centered" hidden>
     ⚠️ Vul eerst je Firebase-instellingen in <code>config.js</code> in — zie
