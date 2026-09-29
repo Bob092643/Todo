@@ -3,7 +3,7 @@
 import { el } from "./dom.js";
 
 let toastTimer = null;
-let undoStack = []; // { text, undo } — meest recente actie achteraan
+let undoStack = []; // { text, undo, actieLabel } — meest recente actie achteraan
 
 function positionToastAboveFooter() {
   if (!el.toast) return;
@@ -17,6 +17,7 @@ function renderToast() {
   const top = undoStack[undoStack.length - 1];
   el.toastText.textContent =
     undoStack.length > 1 ? `${top.text} (+${undoStack.length - 1} eerder)` : top.text;
+  if (el.toastUndoBtn) el.toastUndoBtn.textContent = top.actieLabel || "Ongedaan maken";
   positionToastAboveFooter();
   el.toast.hidden = false;
 }
@@ -27,9 +28,11 @@ function hideToast() {
   if (el.toast) el.toast.hidden = true;
 }
 
-export function showToast(text, undoFn) {
+// actieLabel: optioneel, voor een toast die geen "ongedaan maken" is maar een
+// voorgestelde vervolgactie (bijv. "Afvinken" als een aantal op 0 komt).
+export function showToast(text, undoFn, actieLabel) {
   if (!el.toast) return;
-  undoStack.push({ text, undo: undoFn });
+  undoStack.push({ text, undo: undoFn, actieLabel });
   if (undoStack.length > 5) undoStack.shift();
   clearTimeout(toastTimer);
   renderToast();
