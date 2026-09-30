@@ -85,13 +85,15 @@ async function modalNieuwLijstje(page, naam, { gedeeld = true } = {}) {
   await page.click("#lists-btn");
   await page.waitForSelector("#lists-panel:not([hidden])");
 
-  const priveRowKnoppen = await page.locator('.lists-panel-row:has-text("Ons privé lijstje") button:has-text("Verbergen")').count();
+  // "Verbergen" is een icoonknop (🙈, zie .lists-panel-hide) i.p.v. tekst,
+  // dus op de class selecteren i.p.v. op zichtbare tekst.
+  const priveRowKnoppen = await page.locator('.lists-panel-row:has-text("Ons privé lijstje") button.lists-panel-hide').count();
   check("V1. Een privé lijstje heeft geen 'Verbergen'-knop", priveRowKnoppen === 0);
 
   const zichtbaarVoor = await page.locator('.lists-panel-list .lists-panel-name:has-text("Zomerkamp lijstje")').count();
   check("V2. 'Zomerkamp lijstje' staat gewoon in de lijst vóór het verbergen", zichtbaarVoor === 1);
 
-  await page.click('.lists-panel-row:has-text("Zomerkamp lijstje") button:has-text("Verbergen")');
+  await page.click('.lists-panel-row:has-text("Zomerkamp lijstje") button.lists-panel-hide');
   await modalBevestig(page);
   await page.waitForTimeout(200);
 

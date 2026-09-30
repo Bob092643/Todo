@@ -97,7 +97,7 @@ async function rijHeeftGeenOverloop(page, rowLocator) {
 
   await page.click("#lists-btn");
   await page.waitForSelector("#lists-panel:not([hidden])");
-  await nieuwLijstjeViaKnop(page, "Tweede lijst hier", { gedeeld: true });
+  await nieuwLijstjeViaKnop(page, "Tweede lijst hier met een wat langere naam", { gedeeld: true });
   await page.click("#lists-btn");
   await page.waitForSelector("#lists-panel:not([hidden])");
   await nieuwLijstjeViaKnop(page, "Onze privé boodschappen", { gedeeld: false });
@@ -116,10 +116,18 @@ async function rijHeeftGeenOverloop(page, rowLocator) {
     check(`2.${i}. Rij "${naam.trim()}" heeft geen enkel kind dat buiten de kaart uitsteekt`, await rijHeeftGeenOverloop(page, row));
   }
 
-  const naamOverflow = await page.locator("#lists-panel-list .lists-panel-row").nth(1).locator(".lists-panel-name").evaluate(
-    (el) => el.scrollWidth <= el.clientWidth + 1
+  // Kern van Bob's feedback: elke rij hoort op ÉÉN regel te passen, ook met
+  // een langere naam (die dan netjes met "…" afkapt i.p.v. naar een 2e/3e
+  // regel te wikkelen). Zelfde rijhoogte als een rij met een korte naam
+  // bewijst dat er niet gewikkeld is.
+  const rowHeights = await page.locator("#lists-panel-list .lists-panel-row").evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height));
+  const enkeleRegelHoogte = rowHeights[0];
+  check("3. Elke rij blijft op één regel, óók met een langere naam (zelfde hoogte als een korte naam, geen wikkel)", rowHeights.every((h) => Math.abs(h - enkeleRegelHoogte) < 2));
+
+  const naamAfgekapt = await page.locator("#lists-panel-list .lists-panel-row").nth(1).locator(".lists-panel-name").evaluate(
+    (el) => el.scrollWidth > el.clientWidth // dit IS de bedoeling: liever "…" dan wikkelen
   );
-  check("3. 'Tweede lijst hier' (een normale naam) wordt volledig getoond, niet zinloos afgekapt", naamOverflow);
+  check("3b. ...een te lange naam kapt daarvoor netjes af met '…' (i.p.v. de rij te breken)", naamAfgekapt);
 
   const moveBtnBoxes = await page.locator("#lists-panel-list .move-btn").evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((b) => ({ width: b.width, height: b.height })));
   check("4. Er zijn ↑/↓-knoppen voor elk lijstje (2 per lijstje × 3 lijstjes)", moveBtnBoxes.length === 6);

@@ -2212,10 +2212,12 @@ function start() {
       li.append(switchBtn, moveWrap, tabBadge, gearBtn);
 
       if (!l.prive) {
+        // Icoon i.p.v. tekstknop: anders past de rij niet meer op één regel
+        // (Bob's feedback). Titel/aria-label houden de volledige uitleg.
         const hideBtn = document.createElement("button");
         hideBtn.type = "button";
-        hideBtn.className = "btn btn-ghost btn-small lists-panel-hide";
-        hideBtn.textContent = "Verbergen";
+        hideBtn.className = "btn-icon lists-panel-hide";
+        hideBtn.textContent = "🙈";
         hideBtn.title = "Dit lijstje hier niet meer tonen (blijft gewoon bestaan)";
         hideBtn.setAttribute("aria-label", `${l.naam} verbergen op dit toestel`);
         hideBtn.addEventListener("click", () => hideList(id));
@@ -2224,10 +2226,11 @@ function start() {
 
       // Rechtstreeks verwijderen vanuit dit paneel, zonder eerst naar dit
       // lijstje te hoeven wisselen en dan via archief de danger-zone te openen.
+      // Icoon i.p.v. tekstknop, zelfde reden als bij hideBtn hierboven.
       const deleteBtn = document.createElement("button");
       deleteBtn.type = "button";
-      deleteBtn.className = "btn btn-ghost btn-small lists-panel-delete";
-      deleteBtn.textContent = "Verwijderen";
+      deleteBtn.className = "btn-icon lists-panel-delete";
+      deleteBtn.textContent = "🗑️";
       deleteBtn.title = "Dit lijstje verwijderen (30 dagen terug te zetten via het archief)";
       deleteBtn.setAttribute("aria-label", `${l.naam || "Lijst"} verwijderen`);
       deleteBtn.addEventListener("click", () => verwijderLijst(id, l.prive));
