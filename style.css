@@ -287,12 +287,23 @@ h1, .brand {
   margin-right: 2px;
 }
 
-.lists-panel-list .lists-panel-row {
+/* Expliciet zelfstandig (niet leunen op de wrap/align-items die .archive-panel
+   .list li toevallig ook meegeeft, want #lists-panel deelt die class voor de
+   paneel-chrome): op een smal scherm past niet alles op één regel, dus de
+   naam krijgt zijn eigen volle regel (zie .lists-panel-name) i.p.v. mee te
+   knijpen met de knoppen erachter — die knoppen wikkelen dan samen naar een
+   nette volgende regel. ID-selector nodig om zeker te winnen van die
+   gedeelde regel (2 classes + tag). */
+#lists-panel-list .lists-panel-row,
+#lists-panel-archived .lists-panel-row,
+#lists-panel-hidden .lists-panel-row {
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
 .lists-panel-name {
-  flex: 1;
+  flex: 1 1 100%; /* eigen regel, hoeft niet te concurreren met de knoppen erna */
   text-align: left;
   background: none;
   border: none;
@@ -321,7 +332,41 @@ h1, .brand {
   color: var(--danger);
 }
 
-/* Informatief label, geen knop: leeg (onzichtbaar) als dit lijstje niet als tabblad staat. */
+.move-buttons {
+  flex-shrink: 0;
+  display: flex;
+  gap: 2px;
+}
+
+.move-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 9px 8px;
+  border-radius: 8px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.move-btn:hover {
+  color: var(--blue-600);
+  background: var(--blue-50);
+}
+
+.move-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.move-btn:disabled:hover {
+  background: none;
+}
+
+/* Informatief label, geen knop: helemaal weg (via [hidden] in JS) als dit
+   lijstje niet als tabblad staat, i.p.v. een lege pil die toch nog ruimte inneemt. */
 .lists-panel-tab-badge {
   flex-shrink: 0;
   font-size: 0.72rem;
@@ -1436,6 +1481,11 @@ code {
   gap: 6px;
   font-size: 0.85rem;
   color: var(--text);
+}
+
+.lijst-instelling-hint {
+  margin: -4px 0 0;
+  font-size: 0.78rem;
 }
 
 .lijst-drempel-input {

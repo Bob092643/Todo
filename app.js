@@ -1605,7 +1605,7 @@ function start() {
     return items.find((i) => i.id === item.id) || item;
   }
 
-  function buildItemRow(item, { showMoveButtons, alleNamen }) {
+  function buildItemRow(item, { showMoveButtons, kanVerslepen = showMoveButtons, alleNamen }) {
     const li = document.createElement("li");
     li.className = item.done ? "done" : "";
     li.dataset.id = item.id;
@@ -1664,7 +1664,7 @@ function start() {
       row.append(maakAttributieBadge(attributieNaam, alleNamen, titel));
     }
 
-    if (showMoveButtons) {
+    if (kanVerslepen) {
       const handle = document.createElement("button");
       handle.type = "button";
       handle.className = "drag-handle";
@@ -1747,7 +1747,7 @@ function start() {
       menu.append(bezigBtn);
     }
 
-    if (showMoveButtons) {
+    if (kanVerslepen) {
       const zelfdeGroep = items.filter((i) => i.done === item.done && !!i.pinned === !!item.pinned);
       const posInGroep = zelfdeGroep.indexOf(item);
 
@@ -1774,7 +1774,12 @@ function start() {
         moveItem(item.id, 1);
       });
       menu.append(omlaagBtn);
+    }
 
+    // Los van kanVerslepen: ook bij sorteren-op-datum (waar handmatig
+    // verslepen niet werkt) moet je een item nog kunnen vastpinnen — dat is
+    // juist de manier om het aan die datumvolgorde te onttrekken.
+    if (showMoveButtons) {
       const pinBtn = document.createElement("button");
       pinBtn.type = "button";
       pinBtn.className = "pin-btn" + (item.pinned ? " active" : "");
@@ -1998,7 +2003,8 @@ function start() {
     // Vriezer: optioneel per lijst op datum sorteren (oudste eerst); items
     // zonder datum blijven onderaan, in hun eigen onderlinge volgorde (stabiele sort).
     const huidigeLijstVoorSortering = findList(activeId);
-    if (huidigeLijstVoorSortering && huidigeLijstVoorSortering.sorteerOpDatum) {
+    const sorteerActief = !!(huidigeLijstVoorSortering && huidigeLijstVoorSortering.sorteerOpDatum);
+    if (sorteerActief) {
       normalActive.sort((a, b) => (a.datum || Infinity) - (b.datum || Infinity));
     }
 
@@ -2014,7 +2020,12 @@ function start() {
     });
 
     normalActive.forEach((item) => {
-      el.list.appendChild(buildItemRow(item, { showMoveButtons: true, alleNamen }));
+      // Bij sorteren-op-datum bepaalt de datum de volgorde: handmatig verslepen
+      // zou toch weer worden overschreven bij de volgende render(), dus die
+      // (dan zinloze) sleep-/verplaats-knoppen hier niet tonen. Vastpinnen
+      // (showMoveButtons) blijft wel gewoon mogelijk: dat is juist de manier
+      // om een item aan de datumvolgorde te onttrekken.
+      el.list.appendChild(buildItemRow(item, { showMoveButtons: true, kanVerslepen: !sorteerActief, alleNamen }));
     });
 
     if (active.length > 0 && done.length > 0) {
@@ -2179,12 +2190,13 @@ function start() {
       downBtn.addEventListener("click", () => moveList(id, 1));
       moveWrap.append(upBtn, downBtn);
 
+      // Alleen tonen als het lijstje WEL een tabblad is: een lege pil voor het
+      // omgekeerde geval nam voorheen nodeloos ruimte in op elke rij.
       const tabBadge = document.createElement("span");
       tabBadge.className = "lists-panel-tab-badge" + (isTab ? " active" : "");
-      tabBadge.textContent = isTab ? "tabblad" : "";
-      tabBadge.title = isTab
-        ? "Staat als tabblad bovenin"
-        : "Staat niet als tabblad bovenin — verschuif naar boven met ↑ om dat te veranderen";
+      tabBadge.textContent = "tabblad";
+      tabBadge.title = "Staat als tabblad bovenin";
+      tabBadge.hidden = !isTab;
 
       const gearBtn = document.createElement("button");
       gearBtn.type = "button";
@@ -2256,7 +2268,11 @@ function start() {
         });
         sorteerLabel.append(sorteerCheckbox, " Sorteer op datum (oudste eerst)");
 
-        instellingenLi.append(drempelLabel, sorteerLabel);
+        const sorteerHint = document.createElement("p");
+        sorteerHint.className = "modal-hint lijst-instelling-hint";
+        sorteerHint.textContent = "Staat dit aan, dan bepaalt de datum de volgorde en verdwijnen de sleep-/verplaats-opties. Wil je een item toch op zijn plek houden? Pin 'm dan vast via ⋯.";
+
+        instellingenLi.append(drempelLabel, sorteerLabel, sorteerHint);
         el.listsPanelList.appendChild(instellingenLi);
       }
     });

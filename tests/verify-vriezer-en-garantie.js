@@ -159,6 +159,40 @@ function daysAheadStr(days) {
     const volgordeTekst = await page.textContent("#list");
     check("B3. Sorteren op datum zet 'Oud item' (oudste) vóór 'Nieuw item'", volgordeTekst.indexOf("Oud item") < volgordeTekst.indexOf("Nieuw item"));
 
+    // B4-B8: bij sorteren-op-datum zijn de sleep-/verplaats-opties voor een
+    // niet-vastgepind item zinloos (de volgende render() zet de datumvolgorde
+    // toch weer terug) en dus verwarrend als ze er nog gewoon bij staan
+    // (letterlijke Bob-feedback). Vastpinnen moet wel gewoon blijven werken —
+    // dat is juist de uitzondering op de datumsortering.
+    li = page.locator("li:has-text('Oud item')");
+    check("B4. Bij sorteren-op-datum heeft een niet-vastgepind item geen sleep-handvat meer", (await li.locator(".drag-handle").count()) === 0);
+    await li.locator(".item-menu-btn").click();
+    check("B5. ...en ook geen ↑/↓ verplaats-knoppen meer in het ⋯-menu", (await li.locator(".move-item-btn").count()) === 0);
+    check("B6. ...maar 'Vastpinnen bovenaan' staat er nog gewoon (dat is de uitzondering)", (await li.locator(".pin-btn").count()) === 1);
+
+    await li.locator(".pin-btn").click();
+    await page.waitForTimeout(80);
+    li = page.locator("li:has-text('Oud item')");
+    check("B7. Eenmaal vastgepind (dus buiten de datumsortering) staan sleep-handvat en ↑/↓ er weer bij", (await li.locator(".drag-handle").count()) === 1);
+    await li.locator(".item-menu-btn").click();
+    check("B7b. ...ook in het ⋯-menu weer ↑/↓ te zien", (await li.locator(".move-item-btn").count()) === 2);
+    await li.locator(".pin-btn").click(); // weer losmaken, geen bijeffecten voor de rest van deze test
+    await page.waitForTimeout(80);
+
+    // Sorteren-op-datum weer uitzetten: de gewone sleep-opties horen terug te komen.
+    // (Instellingen-paneel stond al open van hierboven en #lists-close-btn
+    // sluit alleen het hele ☰-paneel, niet dat sub-paneeltje zelf — nu
+    // opnieuw op ⚙ klikken zou het dus juist weer DICHTKLAPPEN.)
+    await page.click("#lists-btn");
+    await page.waitForSelector("#lists-panel:not([hidden])");
+    await page.click(".lijst-sorteer-checkbox");
+    await page.waitForTimeout(80);
+    await page.click("#lists-close-btn");
+    await page.waitForTimeout(80);
+
+    li = page.locator("li:has-text('Nieuw item')");
+    check("B8. Na het uitzetten van sorteren-op-datum heeft een gewoon item zijn sleep-handvat weer terug", (await li.locator(".drag-handle").count()) === 1);
+
     check("Geen JS-fouten opgetreden tijdens deze test", errors.length === 0);
     if (errors.length) console.log(errors);
     await ctx.close();
