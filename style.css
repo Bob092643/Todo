@@ -289,11 +289,12 @@ h1, .brand {
 
 /* Expliciet zelfstandig (niet leunen op de wrap/align-items die .archive-panel
    .list li toevallig ook meegeeft, want #lists-panel deelt die class voor de
-   paneel-chrome): op een smal scherm past niet alles op één regel, dus de
-   naam krijgt zijn eigen volle regel (zie .lists-panel-name) i.p.v. mee te
-   knijpen met de knoppen erachter — die knoppen wikkelen dan samen naar een
-   nette volgende regel. ID-selector nodig om zeker te winnen van die
-   gedeelde regel (2 classes + tag). */
+   paneel-chrome). Met de icoonknoppen hierboven past een rij bij een normale
+   naam weer gewoon op één regel; flex-wrap blijft alleen als vangnet staan
+   voor een ongebruikelijk lange (privé) naam of de archief-/verborgen-rijen
+   (die nog tekstknoppen hebben), zodat het dan netjes wikkelt i.p.v. buiten
+   de kaart uitsteekt. ID-selector nodig om zeker te winnen van die gedeelde
+   regel (2 classes + tag). */
 #lists-panel-list .lists-panel-row,
 #lists-panel-archived .lists-panel-row,
 #lists-panel-hidden .lists-panel-row {
@@ -303,7 +304,7 @@ h1, .brand {
 }
 
 .lists-panel-name {
-  flex: 1 1 100%; /* eigen regel, hoeft niet te concurreren met de knoppen erna */
+  flex: 1; /* deelt de regel met de knoppen; krimpt zo nodig met "…" (zie ook flex-wrap hierboven als vangnet) */
   text-align: left;
   background: none;
   border: none;
